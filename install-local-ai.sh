@@ -4,6 +4,7 @@ set -euo pipefail
 AI_DIR="$HOME/ai"
 BIN_DIR="$AI_DIR/bin"
 MODELS_DIR="$AI_DIR/models"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 LLAMA_CPP_URL="https://github.com/ggml-org/llama.cpp/releases/download/b9672/llama-b9672-bin-ubuntu-vulkan-x64.tar.gz"
 LLAMA_SWAP_URL="https://github.com/mostlygeek/llama-swap/releases/download/v226/llama-swap_226_linux_amd64.tar.gz"
@@ -66,3 +67,7 @@ WantedBy=default.target
 EOF
 
 systemctl --user daemon-reload || true
+
+install -m755 "$SCRIPT_DIR/start.sh" "$AI_DIR/start.sh"
+install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
+install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"

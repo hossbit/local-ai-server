@@ -20,14 +20,14 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
   cat >> "$CONFIG" <<MODELCFG
 
   $NAME:
-    proxy: http://127.0.0.1:${PORT}
+    proxy: http://127.0.0.1:\${PORT}
     cmd: >
       $BIN
-      --port ${PORT}
+      --port \${PORT}
       -m $MODEL
-      -ngl 99
+      -ngl 10
       -t 0
-      -c 8192
+      -c 4096
 
 MODELCFG
 done
