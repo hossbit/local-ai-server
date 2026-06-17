@@ -57,10 +57,11 @@ Description=LocalAI Server
 After=network-online.target
 
 [Service]
+Type=oneshot
+RemainAfterExit=yes
+
 ExecStart=%h/ai/start.sh
 ExecStop=%h/ai/stop.sh
-Restart=always
-RestartSec=5
 
 [Install]
 WantedBy=default.target
