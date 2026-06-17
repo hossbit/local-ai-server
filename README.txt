@@ -1,293 +1,152 @@
-# Local AI Server (llama.cpp + Vulkan + llama-swap)
+# Local AI Server
 
-Run OpenAI-compatible local LLMs using llama.cpp Vulkan acceleration and llama-swap model routing.
+Run local GGUF LLMs with **llama.cpp**, **Vulkan GPU acceleration**, and **llama-swap** using an OpenAI-compatible API.
+
+![Linux](https://img.shields.io/badge/Linux-Ubuntu-orange)
+![llama.cpp](https://img.shields.io/badge/llama.cpp-Vulkan-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+---
 
 ## Features
 
 * OpenAI-compatible API
 * Vulkan GPU acceleration
+* Automatic model discovery
 * Hot model switching with llama-swap
-* Supports GGUF models from Hugging Face
-* Multiple model configurations
+* Supports any GGUF model
+* Hugging Face integration
+* Systemd service support
+* Works with Continue, Open WebUI, LibreChat, AnythingLLM, and OpenAI SDKs
+
+---
+
+## Architecture
+
+```text
+Client
+  │
+  ▼
+llama-swap :11435
+  │
+  ├── Qwen3
+  ├── Qwen Coder
+  ├── DeepSeek
+  ├── Gemma
+  └── Any GGUF Model
+          │
+          ▼
+     llama.cpp
+          │
+          ▼
+      Vulkan GPU
+```
 
 ---
 
 ## Requirements
 
-* Linux
+### Operating System
+
+* Ubuntu Linux
+* Debian Linux
+
+### Hardware
+
 * Vulkan-compatible GPU
-* curl
-* wget
-* Git
+* NVIDIA, AMD, or Intel GPU
+
+### Tested Hardware
+
+* Ubuntu 26.04
+* Intel Iris Xe
+* NVIDIA RTX 3050 Laptop 4GB
+* Vulkan Backend
 
 ---
 
-## Installation
+# Quick Start
 
-Clone the repository and run:
+Clone the repository:
+
+```bash
+git clone https://github.com/hossbit/localai.git
+cd localai
+```
+
+Run the installer:
 
 ```bash
 chmod +x install-local-ai.sh
 ./install-local-ai.sh
 ```
 
-This installs:
+The installer automatically:
 
-* llama.cpp
-* llama-swap
-* required dependencies
-* service scripts
-
----
-
-## Download Models
-
-Create the models directory:
-
-```bash
-mkdir -p ~/ai/models
-```
-
-### Login to Hugging Face
-
-Install the CLI:
-
-```bash
-pip install -U huggingface_hub
-```
-
-Login:
-
-```bash
-hf auth login
-```
-
-Create a Read token at:
-
-https://huggingface.co/settings/tokens
-
-and paste it when prompted.
-
-### Download a GGUF Model
-
-Example: Qwen3 8B Q4_K_M
-
-```bash
-hf download bartowski/Qwen3-8B-GGUF \
-Qwen3-8B-Q4_K_M.gguf \
---local-dir ~/ai/models
-```
-
-### List Available Files
-
-```bash
-wget -qO- https://huggingface.co/api/models/bartowski/Qwen3-8B-GGUF \
-| grep -o '"rfilename":"[^"]*"' \
-| cut -d'"' -f4
-```
+* Downloads llama.cpp Vulkan binaries
+* Installs llama-swap
+* Creates configuration files
+* Creates start/stop scripts
+* Creates a systemd service
 
 ---
 
-## Configure Models
-
-Edit:
-
-```bash
-~/ai/config.yaml
-```
-
-Example:
-
-```yaml
-models:
-  qwen3-8b:
-    cmd: >
-      llama-server
-      -m /home/$USER/ai/models/Qwen3-8B-Q4_K_M.gguf
-      --host 127.0.0.1
-      --port ${PORT}
-      -ngl 999
-```
-
----
-
-## Start Server
-
-```bash
-~/ai/start.sh
-```
-
-Verify:
-
-```bash
-curl http://localhost:11435/v1/models
-```
-
----
-
-## Test Chat API
-
-```bash
-curl http://localhost:11435/v1/chat/completions \
--H "Content-Type: application/json" \
--d '{
-  "model":"qwen3-8b",
-  "messages":[
-    {
-      "role":"user",
-      "content":"What is Linux?"
-    }
-  ]
-}'
-```
-
----
-
-## Stop Server
-
-```bash
-~/ai/stop.sh
-```
-
----
-
-## Restart After Model Changes
-
-```bash
-~/ai/rebuild-config.sh
-~/ai/stop.sh
-~/ai/start.sh
-```
-
----
-
-## API Endpoints
-
-```text
-GET  /v1/models
-POST /v1/chat/completions
-POST /v1/completions
-```
-
-Compatible with:
-
-* OpenAI SDK
-* Continue
-* Open WebUI
-* LibreChat
-* AnythingLLM
-* Custom applications
-
----
-
-## Troubleshooting
-
-### Unauthorized Download (401)
-
-Login again:
-
-```bash
-hf auth login
-```
-
-Verify:
-
-```bash
-hf auth whoami
-```
-
-### Model Not Found
-
-Check:
-
-```bash
-ls -lh ~/ai/models
-```
-
-### Server Not Running
-
-Check logs:
-
-```bash
-ps aux | grep llama
-ps aux | grep llama-swap
-```
-
-
-## Hugging Face Setup
+# Hugging Face Setup
 
 GGUF models are downloaded from Hugging Face.
 
-### Install Required Tools
-
-Ubuntu/Debian:
+## Install Required Tools
 
 ```bash
 sudo apt update
 sudo apt install git-lfs pipx -y
-```
 
-Install the Hugging Face CLI:
-
-```bash
 pipx install huggingface_hub
 ```
 
-Verify installation:
+Verify:
 
 ```bash
 hf --version
 ```
 
-### Create a Hugging Face Account
+---
 
-Register at:
+## Create a Hugging Face Account
+
+Register:
 
 https://huggingface.co
 
-### Generate an Access Token
+---
 
-1. Go to https://huggingface.co/settings/tokens
-2. Click **New Token**
-3. Give it a name (e.g. `local-ai`)
-4. Select **Read** permission
-5. Create the token
-6. Copy the token immediately
+## Create an Access Token
 
-A Read token is sufficient for downloading public and gated models.
+Open:
 
-### Login
+https://huggingface.co/settings/tokens
+
+Create a token with:
+
+```text
+Read
+```
+
+permission.
+
+Copy the token.
+
+---
+
+## Login
 
 ```bash
 hf auth login
 ```
 
-Paste your token when prompted:
+Paste your token when prompted.
 
-```text
-Enter your token (input will not be visible):
-```
-
-When asked:
-
-```text
-Add token as git credential? [y/N]:
-```
-
-You can safely answer:
-
-```text
-N
-```
-
-Expected output:
-
-```text
-Login successful.
-The current active token is: <token-name>
-```
-
-### Verify Login
+Verify:
 
 ```bash
 hf auth whoami
@@ -296,10 +155,12 @@ hf auth whoami
 Example:
 
 ```text
-mir
+hossbit
 ```
 
-### Where Is the Token Stored?
+---
+
+## Token Locations
 
 Active token:
 
@@ -307,7 +168,7 @@ Active token:
 ~/.cache/huggingface/token
 ```
 
-Saved tokens:
+Stored tokens:
 
 ```bash
 ~/.cache/huggingface/stored_tokens
@@ -319,62 +180,17 @@ Show active token:
 cat ~/.cache/huggingface/token
 ```
 
-### Logout
+Logout:
 
 ```bash
 hf auth logout
 ```
 
-### Download a Model
+---
+
+# Finding Available GGUF Files
 
 Example:
-
-```bash
-hf download bartowski/Qwen3-8B-GGUF \
-Qwen3-8B-Q4_K_M.gguf \
---local-dir ~/ai/models
-```
-
-### Download Gated Models
-
-Some models require accepting a license before download.
-
-Example:
-
-* Llama models
-* Gemma models
-* Some Mistral variants
-
-Visit the model page and click **Accept License** before downloading.
-
-### Troubleshooting
-
-#### Unauthorized (401)
-
-Login again:
-
-```bash
-hf auth logout
-hf auth login
-```
-
-#### Check Current User
-
-```bash
-hf auth whoami
-```
-
-#### List Downloaded Models
-
-```bash
-ls -lh ~/ai/models
-```
-
-## Finding Available GGUF Files
-
-Before downloading a model, you can list all GGUF files available in a Hugging Face repository.
-
-### Example: Qwen3 8B
 
 ```bash
 wget -qO- https://huggingface.co/api/models/bartowski/Qwen_Qwen3-8B-GGUF \
@@ -393,9 +209,11 @@ Qwen3-8B-Q6_K.gguf
 Qwen3-8B-Q8_0.gguf
 ```
 
-### Download a Selected Model
+---
 
-Example:
+# Download Models
+
+## Qwen3 8B
 
 ```bash
 hf download bartowski/Qwen_Qwen3-8B-GGUF \
@@ -403,40 +221,250 @@ Qwen3-8B-Q4_K_M.gguf \
 --local-dir ~/ai/models
 ```
 
-### Generic Command
-
-Replace `<repository>` with any Hugging Face GGUF repository:
+## Qwen2.5 Coder 7B
 
 ```bash
-wget -qO- https://huggingface.co/api/models/<repository> \
-| grep -o '"rfilename":"[^"]*"' \
-| cut -d'"' -f4
+hf download bartowski/Qwen2.5-Coder-7B-Instruct-GGUF \
+Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf \
+--local-dir ~/ai/models
 ```
 
-Examples:
+## DeepSeek R1 Distill
 
 ```bash
-wget -qO- https://huggingface.co/api/models/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF \
-| grep -o '"rfilename":"[^"]*"' \
-| cut -d'"' -f4
+hf download bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF \
+DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf \
+--local-dir ~/ai/models
 ```
+
+---
+
+# Recommended Quantizations
+
+| Quant  | Quality     | Memory   |
+| ------ | ----------- | -------- |
+| Q2_K   | Lowest      | Smallest |
+| Q3_K_M | Good        | Low      |
+| Q4_K_M | Recommended | Medium   |
+| Q5_K_M | Better      | High     |
+| Q6_K   | Very Good   | Higher   |
+| Q8_0   | Near FP16   | Highest  |
+
+For GPUs with 4 GB VRAM:
+
+```text
+Q4_K_M
+```
+
+is usually the best balance between quality and speed.
+
+---
+
+# Start Server
 
 ```bash
-wget -qO- https://huggingface.co/api/models/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF \
-| grep -o '"rfilename":"[^"]*"' \
-| cut -d'"' -f4
+~/ai/start.sh
 ```
 
-### Recommended Quantizations
+Verify:
 
-| Quant  | Quality           | Memory Usage |
-| ------ | ----------------- | ------------ |
-| Q2_K   | Lowest            | Smallest     |
-| Q3_K_M | Good              | Low          |
-| Q4_K_M | Recommended       | Medium       |
-| Q5_K_M | Better            | Higher       |
-| Q6_K   | Very Good         | High         |
-| Q8_0   | Near FP16 Quality | Very High    |
+```bash
+curl http://localhost:11435/v1/models
+```
 
-For a 4 GB RTX 3050, **Q4_K_M** is usually the best balance of quality, speed, and memory usage.
+Expected output:
+
+```json
+{
+  "data": [
+    {
+      "id": "qwen3-8b"
+    }
+  ]
+}
+```
+
+---
+
+# Stop Server
+
+```bash
+~/ai/stop.sh
+```
+
+---
+
+# Restart After Model Changes
+
+```bash
+~/ai/rebuild-config.sh
+~/ai/stop.sh
+~/ai/start.sh
+```
+
+---
+
+# Test Chat API
+
+```bash
+curl http://localhost:11435/v1/chat/completions \
+-H "Content-Type: application/json" \
+-d '{
+  "model":"qwen3-8b",
+  "messages":[
+    {
+      "role":"user",
+      "content":"What is Linux?"
+    }
+  ]
+}'
+```
+
+---
+
+# Python Example
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:11435/v1",
+    api_key="local"
+)
+
+response = client.chat.completions.create(
+    model="qwen3-8b",
+    messages=[
+        {"role":"user","content":"Hello"}
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+---
+
+# Continue IDE
+
+Example configuration:
+
+```json
+{
+  "title": "Qwen3",
+  "provider": "openai",
+  "model": "qwen3-8b",
+  "apiBase": "http://localhost:11435/v1",
+  "apiKey": "local"
+}
+```
+
+---
+
+# API Endpoints
+
+```text
+GET  /v1/models
+POST /v1/chat/completions
+POST /v1/completions
+```
+
+Compatible with:
+
+* OpenAI SDK
+* Continue
+* Open WebUI
+* LibreChat
+* AnythingLLM
+* Custom Applications
+
+---
+
+# Systemd Service
+
+Enable automatic startup:
+
+```bash
+systemctl --user enable --now llama-swap
+```
+
+Check status:
+
+```bash
+systemctl --user status llama-swap
+```
+
+Restart:
+
+```bash
+systemctl --user restart llama-swap
+```
+
+Stop:
+
+```bash
+systemctl --user stop llama-swap
+```
+
+---
+
+# Troubleshooting
+
+## Unauthorized Download (401)
+
+```bash
+hf auth logout
+hf auth login
+```
+
+Verify:
+
+```bash
+hf auth whoami
+```
+
+---
+
+## Model Not Found
+
+```bash
+ls -lh ~/ai/models
+```
+
+---
+
+## Check Available Models
+
+```bash
+curl http://localhost:11435/v1/models
+```
+
+---
+
+## Check Running Processes
+
+```bash
+ps aux | grep llama
+ps aux | grep llama-swap
+```
+
+---
+
+## Check GPU Detection
+
+```bash
+~/ai/bin/llama-server --list-devices
+```
+
+Example:
+
+```text
+Vulkan0: Intel Iris Xe
+Vulkan1: NVIDIA GeForce RTX 3050 Laptop GPU
+```
+
+---
+
+# License
+
+MIT License
 
