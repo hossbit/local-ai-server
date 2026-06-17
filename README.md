@@ -467,3 +467,12 @@ Vulkan1: NVIDIA GeForce RTX 3050 Laptop GPU
 # License
 
 MIT License
+
+
+## Production Fixes Included
+
+- Systemd user service
+- Logging support
+- PID file management
+- Improved startup/shutdown handling
+- Better GPU offload defaults

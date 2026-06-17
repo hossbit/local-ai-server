@@ -17,7 +17,7 @@ done
 echo "$PORT" > "$AI_DIR/port"
 
 sudo apt-get update
-sudo apt-get install -y wget curl jq tar
+sudo apt-get install -y wget curl jq tar git ca-certificates
 
 cd "$BIN_DIR"
 
@@ -44,3 +44,25 @@ if ! command -v llama-swap >/dev/null 2>&1; then
 fi
 
 echo "Installed. Put GGUF models into $MODELS_DIR"
+
+
+echo "Creating LocalAI user service..."
+
+mkdir -p "$HOME/.config/systemd/user"
+
+cat > "$HOME/.config/systemd/user/localai.service" <<EOF
+[Unit]
+Description=LocalAI Server
+After=network-online.target
+
+[Service]
+ExecStart=%h/ai/start.sh
+ExecStop=%h/ai/stop.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload || true
