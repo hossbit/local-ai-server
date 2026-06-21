@@ -483,3 +483,14 @@ MIT License
 - PID file management
 - Improved startup/shutdown handling
 - Better GPU offload defaults
+
+## Credits
+
+This project is built on top of:
+
+- https://github.com/ggml-org/llama.cpp
+- https://github.com/mostlygeek/llama-swap
+
+Special thanks to the maintainers and contributors of these projects.
+
+LocalAI focuses on simplifying installation, configuration, model management, and service deployment for local LLM environments.
