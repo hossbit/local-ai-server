@@ -100,6 +100,7 @@ GGUF models are downloaded from Hugging Face.
 ```bash
 sudo apt update
 sudo apt install git-lfs pipx -y
+sudo apt install python3-huggingface-hub
 
 pipx install huggingface_hub
 ```
@@ -155,7 +156,7 @@ hf auth whoami
 Example:
 
 ```text
-hossbit
+miruser
 ```
 
 ---
@@ -256,8 +257,15 @@ For GPUs with 4 GB VRAM:
 Q4_K_M
 ```
 
-is usually the best balance between quality and speed.
+It is usually the best balance between quality and speed.
 
+---
+
+# Create Models Yaml Config
+
+```bash
+~/ai/rebuild-config.sh
+```
 ---
 
 # Start Server
@@ -310,7 +318,7 @@ Expected output:
 curl http://localhost:11435/v1/chat/completions \
 -H "Content-Type: application/json" \
 -d '{
-  "model":"qwen3-8b",
+  "model":"Qwen2.5-Coder-7B-Instruct-Q4_K_M",
   "messages":[
     {
       "role":"user",
@@ -384,25 +392,25 @@ Compatible with:
 Enable automatic startup:
 
 ```bash
-systemctl --user enable --now llama-swap
+systemctl --user enable --now localai.service
 ```
 
 Check status:
 
 ```bash
-systemctl --user status llama-swap
+systemctl --user status localai.service
 ```
 
 Restart:
 
 ```bash
-systemctl --user restart llama-swap
+systemctl --user restart localai.service
 ```
 
 Stop:
 
 ```bash
-systemctl --user stop llama-swap
+systemctl --user stop localai.service
 ```
 
 ---

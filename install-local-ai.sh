@@ -37,17 +37,10 @@ exec "$LLAMA_DIR/llama-server" "\$@"
 EOF
 chmod +x "$BIN_DIR/llama-server"
 
-if ! command -v llama-swap >/dev/null 2>&1; then
-  cd /tmp
-  wget -O llama-swap.tar.gz "$LLAMA_SWAP_URL"
-  tar -xzf llama-swap.tar.gz
-  sudo install -m755 llama-swap /usr/local/bin/llama-swap
-fi
-
-echo "Installed. Put GGUF models into $MODELS_DIR"
-
-
-echo "Creating LocalAI user service..."
+cd /tmp
+wget -O llama-swap.tar.gz "$LLAMA_SWAP_URL"
+tar -xzf llama-swap.tar.gz
+sudo install -m755 llama-swap /usr/local/bin/llama-swap
 
 mkdir -p "$HOME/.config/systemd/user"
 
@@ -72,3 +65,55 @@ systemctl --user daemon-reload || true
 install -m755 "$SCRIPT_DIR/start.sh" "$AI_DIR/start.sh"
 install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
 install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
+
+
+echo
+echo "============================================================"
+echo " LocalAI installation completed"
+echo "============================================================"
+echo
+echo "Service commands:"
+echo
+echo "  Start service:"
+echo "    systemctl --user start localai"
+echo
+echo "  Stop service:"
+echo "    systemctl --user stop localai"
+echo
+echo "  Restart service:"
+echo "    systemctl --user restart localai"
+echo
+echo "  Check status:"
+echo "    systemctl --user status localai"
+echo
+echo "  View logs:"
+echo "    journalctl --user -u localai -f"
+echo
+echo "  Enable auto-start on login:"
+echo "    systemctl --user enable localai"
+echo
+echo "  Disable auto-start:"
+echo "    systemctl --user disable localai"
+echo
+echo "Helper scripts:"
+echo
+echo "  Start manually:"
+echo "    ~/ai/start.sh"
+echo
+echo "  Stop manually:"
+echo "    ~/ai/stop.sh"
+echo
+echo "  Rebuild config:"
+echo "    ~/ai/rebuild-config.sh"
+echo
+echo "API endpoint:"
+echo "  http://localhost:$(cat "$AI_DIR/port")"
+echo
+echo "Models directory:"
+echo "  $MODELS_DIR"
+echo
+echo "Current versions:"
+echo "  llama.cpp : $(~/ai/bin/llama-server --version 2>&1 | awk '/version:/ {print $2; exit}')"
+echo "  llama-swap: $(llama-swap --version 2>&1 | awk '/version:/ {print $2; exit}')"
+echo
+echo "============================================================"

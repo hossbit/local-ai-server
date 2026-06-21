@@ -27,7 +27,9 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
       -m $MODEL
       -ngl 10
       -t 0
-      -c 4096
+      -c 32768
+      --cache-type-k q8_0
+      --cache-type-v q8_0
 
 MODELCFG
 done
