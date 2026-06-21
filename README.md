@@ -463,11 +463,11 @@ Update LocalAI components:
 ```
 The update script:
 
-Updates llama.cpp
-Updates llama-swap
-Updates helper scripts
-Preserves installed models
-Rebuilds configuration when required
+* Updates llama.cpp
+* Updates llama-swap
+* Updates helper scripts
+* Preserves installed models
+* Rebuilds configuration when required
 
 ---
 
