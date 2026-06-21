@@ -294,24 +294,6 @@ Expected output:
 
 ---
 
-# Stop Server
-
-```bash
-~/ai/stop.sh
-```
-
----
-
-# Restart After Model Changes
-
-```bash
-~/ai/rebuild-config.sh
-~/ai/stop.sh
-~/ai/start.sh
-```
-
----
-
 # Test Chat API
 
 ```bash
@@ -469,6 +451,23 @@ Example:
 Vulkan0: Intel Iris Xe
 Vulkan1: NVIDIA GeForce RTX 3050 Laptop GPU
 ```
+
+---
+
+# Updating LocalAI
+
+Update LocalAI components:
+
+```bash
+./update-local-ai.sh
+```
+The update script:
+
+Updates llama.cpp
+Updates llama-swap
+Updates helper scripts
+Preserves installed models
+Rebuilds configuration when required
 
 ---
 
