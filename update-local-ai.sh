@@ -188,6 +188,14 @@ log "Updating llama.cpp"
 echo "Current: $CURRENT_LLAMA_CPP"
 echo "Latest : $LATEST_LLAMA_CPP"
 
+# Check if the variable is non-empty AND the directory actually exists
+if [ -n "$BIN_DIR" ] && [ -d "$BIN_DIR" ]; then
+    # Delete the contents of the directory
+    rm -rf "${BIN_DIR:?}"/*
+else
+    echo "Error: BIN_DIR is empty or not a valid directory."
+fi
+
 cd "$BIN_DIR"
 
 find "$BIN_DIR" \
@@ -273,7 +281,7 @@ fi
 
 log "Starting LocalAI"
 
-"$SCRIPT_DIR/start.sh"
+"$AI_DIR/start.sh"
 
 ###############################################################################
 
@@ -282,5 +290,3 @@ log "Starting LocalAI"
 ###############################################################################
 
 log "Update complete"
-
-echo "Port: $PORT"

@@ -22,10 +22,9 @@ sudo apt-get install -y wget curl jq tar git ca-certificates
 
 cd "$BIN_DIR"
 
-if ! find "$BIN_DIR" -type f -name llama-server ! -path "$BIN_DIR/llama-server" | grep -q .; then
-  wget -O llama.cpp.tar.gz "$LLAMA_CPP_URL"
-  tar -xzf llama.cpp.tar.gz
-fi
+wget -O llama.cpp.tar.gz "$LLAMA_CPP_URL"
+tar -xzf llama.cpp.tar.gz
+
 
 LLAMA_SERVER_REAL=$(find "$BIN_DIR" -type f -name llama-server ! -path "$BIN_DIR/llama-server" | head -n1)
 LLAMA_DIR=$(dirname "$LLAMA_SERVER_REAL")
