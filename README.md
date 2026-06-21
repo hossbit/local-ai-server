@@ -471,11 +471,6 @@ The update script:
 
 ---
 
-# License
-
-MIT License
-
-
 ## Production Fixes Included
 
 - Systemd user service
@@ -483,6 +478,8 @@ MIT License
 - PID file management
 - Improved startup/shutdown handling
 - Better GPU offload defaults
+
+---
 
 ## Credits
 
@@ -494,3 +491,9 @@ This project is built on top of:
 Special thanks to the maintainers and contributors of these projects.
 
 LocalAI focuses on simplifying installation, configuration, model management, and service deployment for local LLM environments.
+
+---
+
+# License
+
+MIT License
