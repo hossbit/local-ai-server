@@ -1,5 +1,9 @@
 # Local AI Server
 
+![Linux](https://img.shields.io/badge/Linux-Ubuntu-orange)
+![llama.cpp](https://img.shields.io/badge/llama.cpp-Vulkan-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 Run GGUF language models locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
 Vulkan GPU acceleration, and
@@ -286,6 +290,18 @@ The helper scripts bind llama-swap to `127.0.0.1`, so the API is available only
 on the local machine by default. Do not expose it to a network without adding
 authentication, TLS, and appropriate firewall rules.
 
+## Credits
+
+This project is built on top of:
+
+- https://github.com/ggml-org/llama.cpp
+- https://github.com/mostlygeek/llama-swap
+
+Special thanks to the maintainers and contributors of these projects.
+
+LocalAI focuses on simplifying installation, configuration, model management,
+and service deployment for local LLM environments.
+
 ## License
 
-MIT
+MIT License
