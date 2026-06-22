@@ -1,292 +1,138 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
-
-###############################################################################
-
-# CONFIG
-
-###############################################################################
 
 AI_DIR="$HOME/ai"
 BIN_DIR="$AI_DIR/bin"
-MODELS_DIR="$AI_DIR/models"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 LLAMA_CPP_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
 LLAMA_SWAP_API="https://api.github.com/repos/mostlygeek/llama-swap/releases/latest"
+START_AFTER_UPDATE=1
 
-###############################################################################
-
-# LOGGING
-
-###############################################################################
+if [ "${1:-}" = "--no-start" ]; then
+  START_AFTER_UPDATE=0
+elif [ "$#" -gt 0 ]; then
+  echo "Usage: $0 [--no-start]" >&2
+  exit 2
+fi
 
 log() {
-echo
-echo "================================================================"
-echo "[$(date '+%F %T')] $*"
-echo "================================================================"
+  printf '\n==> %s\n' "$*"
 }
 
 fail() {
-echo
-echo "ERROR: $*" >&2
-exit 1
+  echo "Error: $*" >&2
+  exit 1
 }
 
-###############################################################################
-
-# FETCH RELEASE INFO
-
-###############################################################################
-
-log "Fetching llama.cpp metadata"
-
-LLAMA_CPP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_API") \
-    || fail "Failed to fetch llama.cpp metadata"
-
-log "llama.cpp metadata OK"
-
-log "Fetching llama-swap metadata"
-
-LLAMA_SWAP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_SWAP_API") \
-    || fail "Failed to fetch llama-swap metadata"
-
-log "llama-swap metadata OK"
-
-###############################################################################
-
-# PARSE RELEASE INFO
-
-###############################################################################
-
-log "Parsing release information"
-
-LLAMA_CPP_URL=$(echo "$LLAMA_CPP_JSON" | jq -r '.assets[] | select(.name | contains("ubuntu-vulkan-x64")) | .browser_download_url')
-LLAMA_SWAP_URL=$(echo "$LLAMA_SWAP_JSON" | jq -r '.assets[] | select(.name | endswith("linux_amd64.tar.gz")) | .browser_download_url')
-
-LATEST_LLAMA_CPP=$(echo "$LLAMA_CPP_JSON" | jq -r '.tag_name' | tr -dc '0-9')
-LATEST_LLAMA_SWAP=$(echo "$LLAMA_SWAP_JSON" | jq -r '.tag_name' | tr -dc '0-9')
-
-echo "Latest llama.cpp : $LATEST_LLAMA_CPP"
-echo "Latest llama-swap: $LATEST_LLAMA_SWAP"
-
-###############################################################################
-
-# INSTALLED VERSIONS
-
-###############################################################################
-
-CURRENT_LLAMA_CPP=0
-CURRENT_LLAMA_SWAP=0
-
-log "Checking installed llama.cpp version"
-
-if [ -x "$BIN_DIR/llama-server" ]; then
-CURRENT_LLAMA_CPP=$(
-    "$BIN_DIR/llama-server" --version 2>&1 | awk '/version:/ {print $2}'
-)
-
-CURRENT_LLAMA_CPP=${CURRENT_LLAMA_CPP:-0}
-else
-echo "llama-server not found"
-fi
-
-log "Checking installed llama-swap version"
-
-if command -v llama-swap >/dev/null 2>&1; then
-CURRENT_LLAMA_SWAP=$(timeout 10 llama-swap --version 2>/dev/null | grep -oE '[0-9]+' | head -n1 || true)
-CURRENT_LLAMA_SWAP=${CURRENT_LLAMA_SWAP:-0}
-else
-echo "llama-swap not found"
-fi
-
-###############################################################################
-
-# REPORT
-
-###############################################################################
-
-echo
-echo "================================================================"
-echo "Version Report"
-echo "================================================================"
-
-printf "%-15s %-12s %-12s %-15s\n" "Component" "Installed" "Latest" "Status"
-printf "%-15s %-12s %-12s %-15s\n" "---------" "---------" "------" "------"
-
-CPP_STATUS="OK"
-SWAP_STATUS="OK"
-
-[ "$CURRENT_LLAMA_CPP" -lt "$LATEST_LLAMA_CPP" ] && CPP_STATUS="UPDATE"
-[ "$CURRENT_LLAMA_SWAP" -lt "$LATEST_LLAMA_SWAP" ] && SWAP_STATUS="UPDATE"
-
-printf "%-15s %-12s %-12s %-15s\n" \
-    "llama.cpp" "$CURRENT_LLAMA_CPP" "$LATEST_LLAMA_CPP" "$CPP_STATUS"
-
-printf "%-15s %-12s %-12s %-15s\n" \
-    "llama-swap" "$CURRENT_LLAMA_SWAP" "$LATEST_LLAMA_SWAP" "$SWAP_STATUS"
-
-echo "================================================================"
-
-UPDATE_NEEDED=0
-
-[ "$CURRENT_LLAMA_CPP" -lt "$LATEST_LLAMA_CPP" ] && UPDATE_NEEDED=1
-[ "$CURRENT_LLAMA_SWAP" -lt "$LATEST_LLAMA_SWAP" ] && UPDATE_NEEDED=1
-
-if [ "$UPDATE_NEEDED" -eq 0 ]; then
-log "Everything is already up to date"
-exit 0
-fi
-
-###############################################################################
-
-# STOP SERVICES
-
-###############################################################################
-
-log "Stopping LocalAI"
-
-"$SCRIPT_DIR/stop.sh"
-
-###############################################################################
-
-# PREPARE DIRECTORIES
-
-###############################################################################
-
-mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
-
-###############################################################################
-
-# FIND FREE PORT
-
-###############################################################################
-
-PORT=11435
-
-while ss -ltn | awk '{print $4}' | grep -q ":${PORT}$"; do
-PORT=$((PORT + 1))
+for COMMAND in curl jq tar; do
+  command -v "$COMMAND" >/dev/null 2>&1 || fail "required command not found: $COMMAND"
 done
 
-echo "$PORT" > "$AI_DIR/port"
+[ "$(uname -m)" = "x86_64" ] || fail "this updater currently supports x86_64 Linux only"
 
-echo "Selected port: $PORT"
+mkdir -p "$AI_DIR" "$BIN_DIR"
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-###############################################################################
-
-# UPDATE LLAMA.CPP
-
-###############################################################################
-
-if [ "$CURRENT_LLAMA_CPP" -lt "$LATEST_LLAMA_CPP" ]; then
-
-
-log "Updating llama.cpp"
-
-echo "Current: $CURRENT_LLAMA_CPP"
-echo "Latest : $LATEST_LLAMA_CPP"
-
-# Check if the variable is non-empty AND the directory actually exists
-if [ -n "$BIN_DIR" ] && [ -d "$BIN_DIR" ]; then
-    # Delete the contents of the directory
-    rm -rf "${BIN_DIR:?}"/*
-else
-    echo "Error: BIN_DIR is empty or not a valid directory."
+if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
+  for SCRIPT in start.sh stop.sh rebuild-config.sh update-local-ai.sh; do
+    if [ -f "$SCRIPT_DIR/$SCRIPT" ]; then
+      install -m755 "$SCRIPT_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
+    fi
+  done
 fi
 
-cd "$BIN_DIR"
+log "Fetching release metadata"
+LLAMA_CPP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_API")
+LLAMA_SWAP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_SWAP_API")
 
-find "$BIN_DIR" \
-    -maxdepth 1 \
-    -type d \
-    -name "llama-b*-bin-*" \
-    -exec rm -rf {} + 2>/dev/null || true
+LLAMA_CPP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_CPP_JSON")
+LLAMA_SWAP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")
+LLAMA_CPP_URL=$(jq -er \
+  '.assets[] | select(.name | test("ubuntu-vulkan-x64\\.tar\\.gz$")) | .browser_download_url' \
+  <<<"$LLAMA_CPP_JSON" | head -n1)
+LLAMA_SWAP_URL=$(jq -er \
+  '.assets[] | select(.name | test("linux_amd64\\.tar\\.gz$")) | .browser_download_url' \
+  <<<"$LLAMA_SWAP_JSON" | head -n1)
 
-rm -f llama.cpp.tar.gz
+[ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp Ubuntu Vulkan x64 asset found"
+[ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found"
 
-wget --show-progress -O llama.cpp.tar.gz "$LLAMA_CPP_URL"
+CURRENT_LLAMA_CPP=$(
+  "$BIN_DIR/llama-server" --version 2>&1 |
+    awk '/version:/ {print $2; exit}' || true
+)
+CURRENT_LLAMA_SWAP=$(
+  llama-swap --version 2>&1 |
+    grep -oE 'v?[0-9]+' |
+    head -n1 || true
+)
 
-tar -xzf llama.cpp.tar.gz
+printf 'llama.cpp:  installed=%s latest=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG"
+printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LLAMA_SWAP_TAG"
 
-LLAMA_SERVER_REAL=$(find "$BIN_DIR" -type f -name llama-server ! -path "$BIN_DIR/llama-server" | head -n1)
+NEED_CPP=1
+NEED_SWAP=1
+if [ -n "$CURRENT_LLAMA_CPP" ]; then
+  case "$LLAMA_CPP_TAG" in
+    *"$CURRENT_LLAMA_CPP"*) NEED_CPP=0 ;;
+  esac
+fi
+if [ -n "$CURRENT_LLAMA_SWAP" ]; then
+  case "$LLAMA_SWAP_TAG" in
+    *"${CURRENT_LLAMA_SWAP#v}") NEED_SWAP=0 ;;
+  esac
+fi
 
-[ -n "$LLAMA_SERVER_REAL" ] || fail "llama-server not found"
+if ((NEED_CPP == 0 && NEED_SWAP == 0)); then
+  log "Everything is already up to date"
+  exit 0
+fi
 
-LLAMA_DIR=$(dirname "$LLAMA_SERVER_REAL")
+if [ -x "$AI_DIR/stop.sh" ]; then
+  "$AI_DIR/stop.sh"
+elif [ -x "$SCRIPT_DIR/stop.sh" ]; then
+  "$SCRIPT_DIR/stop.sh"
+fi
 
-cat > "$BIN_DIR/llama-server" <<WRAPPER
+if ((NEED_CPP)); then
+  log "Installing llama.cpp $LLAMA_CPP_TAG"
+  mkdir -p "$TMP_DIR/llama.cpp"
+  curl -4 -fL --retry 3 -o "$TMP_DIR/llama.cpp.tar.gz" "$LLAMA_CPP_URL"
+  tar -xzf "$TMP_DIR/llama.cpp.tar.gz" -C "$TMP_DIR/llama.cpp"
+
+  LLAMA_SERVER_REAL=$(find "$TMP_DIR/llama.cpp" -type f -name llama-server | head -n1)
+  [ -n "$LLAMA_SERVER_REAL" ] || fail "llama-server was not found in the downloaded archive"
+  LLAMA_DIR=$(dirname "$LLAMA_SERVER_REAL")
+
+  rm -rf "$BIN_DIR/llama.cpp"
+  mv "$LLAMA_DIR" "$BIN_DIR/llama.cpp"
+
+  cat > "$TMP_DIR/llama-server" <<EOF
 #!/usr/bin/env bash
-export LD_LIBRARY_PATH="$LLAMA_DIR:\${LD_LIBRARY_PATH:-}"
-exec "$LLAMA_DIR/llama-server" "\$@"
-WRAPPER
-
-
-chmod +x "$BIN_DIR/llama-server"
-
-echo "llama.cpp updated successfully"
-
-
+export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
+exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
+EOF
+  install -m755 "$TMP_DIR/llama-server" "$BIN_DIR/llama-server"
 fi
 
-###############################################################################
+if ((NEED_SWAP)); then
+  log "Installing llama-swap $LLAMA_SWAP_TAG"
+  mkdir -p "$TMP_DIR/llama-swap"
+  curl -4 -fL --retry 3 -o "$TMP_DIR/llama-swap.tar.gz" "$LLAMA_SWAP_URL"
+  tar -xzf "$TMP_DIR/llama-swap.tar.gz" -C "$TMP_DIR/llama-swap"
 
-# UPDATE LLAMA-SWAP
-
-###############################################################################
-
-if [ "$CURRENT_LLAMA_SWAP" -lt "$LATEST_LLAMA_SWAP" ]; then
-
-
-log "Updating llama-swap"
-
-echo "Current: $CURRENT_LLAMA_SWAP"
-echo "Latest : $LATEST_LLAMA_SWAP"
-
-cd /tmp
-
-rm -f llama-swap.tar.gz llama-swap
-
-wget --show-progress -O llama-swap.tar.gz "$LLAMA_SWAP_URL"
-
-tar -xzf llama-swap.tar.gz
-
-sudo install -m755 llama-swap /usr/local/bin/llama-swap
-
-echo "llama-swap updated successfully"
-
-
+  LLAMA_SWAP_REAL=$(find "$TMP_DIR/llama-swap" -type f -name llama-swap | head -n1)
+  [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the downloaded archive"
+  sudo install -m755 "$LLAMA_SWAP_REAL" /usr/local/bin/llama-swap
 fi
 
-###############################################################################
-
-# VERIFY
-
-###############################################################################
-
-log "Installed versions after update"
-
-"$BIN_DIR/llama-server" --version | head -n1
-
-if command -v llama-swap >/dev/null 2>&1; then
-timeout 10 llama-swap --version || true
+if [ "$START_AFTER_UPDATE" -eq 1 ]; then
+  if [ -x "$AI_DIR/start.sh" ]; then
+    "$AI_DIR/start.sh"
+  else
+    log "Updated successfully; run the installer to create the service and helper scripts"
+  fi
+else
+  log "Updated successfully"
 fi
-
-###############################################################################
-
-# START SERVICES
-
-###############################################################################
-
-log "Starting LocalAI"
-
-"$AI_DIR/start.sh"
-
-###############################################################################
-
-# DONE
-
-###############################################################################
-
-log "Update complete"

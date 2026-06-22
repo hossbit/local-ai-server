@@ -1,499 +1,291 @@
 # Local AI Server
 
-Run local GGUF LLMs with **llama.cpp**, **Vulkan GPU acceleration**, and **llama-swap** using an OpenAI-compatible API.
+Run GGUF language models locally with
+[llama.cpp](https://github.com/ggml-org/llama.cpp),
+Vulkan GPU acceleration, and
+[llama-swap](https://github.com/mostlygeek/llama-swap).
+The server exposes an OpenAI-compatible API and discovers models placed in
+`~/ai/models`.
 
-![Linux](https://img.shields.io/badge/Linux-Ubuntu-orange)
-![llama.cpp](https://img.shields.io/badge/llama.cpp-Vulkan-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+## What it provides
 
----
-
-## Features
-
-* OpenAI-compatible API
-* Vulkan GPU acceleration
-* Automatic model discovery
-* Hot model switching with llama-swap
-* Supports any GGUF model
-* Hugging Face integration
-* Systemd service support
-* Works with Continue, Open WebUI, LibreChat, AnythingLLM, and OpenAI SDKs
-
----
-
-## Architecture
+- OpenAI-compatible chat and completion endpoints
+- Vulkan acceleration on supported NVIDIA, AMD, and Intel GPUs
+- Automatic discovery of `.gguf` model files
+- On-demand model loading and switching through llama-swap
+- A systemd user service
+- Update, start, stop, and configuration helper scripts
 
 ```text
-Client
-  │
-  ▼
-llama-swap :11435
-  │
-  ├── Qwen3
-  ├── Qwen Coder
-  ├── DeepSeek
-  ├── Gemma
-  └── Any GGUF Model
-          │
-          ▼
-     llama.cpp
-          │
-          ▼
-      Vulkan GPU
+OpenAI-compatible client
+          |
+          v
+ llama-swap (localhost)
+          |
+          v
+ llama.cpp + Vulkan
+          |
+          v
+    GGUF model files
 ```
-
----
 
 ## Requirements
 
-### Operating System
+- Ubuntu or Debian on an x86-64 machine
+- A Vulkan-capable GPU and working Vulkan driver
+- `sudo` access during installation
+- Enough RAM and VRAM for the model and quantization you choose
 
-* Ubuntu Linux
-* Debian Linux
+The installer uses the known compatible releases `llama.cpp b9672` and
+`llama-swap v226`. The separate update script checks for newer releases.
 
-### Hardware
-
-* Vulkan-compatible GPU
-* NVIDIA, AMD, or Intel GPU
-
-### Tested Hardware
-
-* Ubuntu 26.04
-* Intel Iris Xe
-* NVIDIA RTX 3050 Laptop 4GB
-* Vulkan Backend
-
----
-
-# Quick Start
-
-Clone the repository:
+## Install
 
 ```bash
 git clone https://github.com/hossbit/localai.git
 cd localai
-```
-
-Run the installer:
-
-```bash
-chmod +x install-local-ai.sh
+chmod +x ./*.sh
 ./install-local-ai.sh
 ```
 
-The installer automatically:
+The installer:
 
-* Downloads llama.cpp Vulkan binaries
-* Installs llama-swap
-* Creates configuration files
-* Creates start/stop scripts
-* Creates a systemd service
+1. Installs required system packages.
+2. Downloads the pinned llama.cpp b9672 and llama-swap v226 releases.
+3. Creates `~/ai/bin`, `~/ai/models`, and the helper scripts.
+4. Selects an available port, beginning at `11435`.
+5. Creates a systemd user service.
 
----
-
-# Hugging Face Setup
-
-GGUF models are downloaded from Hugging Face.
-
-## Install Required Tools
+The installer does not start the server automatically. Add at least one model,
+then start it with:
 
 ```bash
-sudo apt update
-sudo apt install git-lfs pipx -y
-sudo apt install python3-huggingface-hub
-
-pipx install huggingface_hub
+systemctl --user start localai
 ```
 
-Verify:
+To start it automatically when you log in:
 
 ```bash
-hf --version
+systemctl --user enable --now localai
 ```
 
----
+## Add a model
 
-## Create a Hugging Face Account
-
-Register:
-
-https://huggingface.co
-
----
-
-## Create an Access Token
-
-Open:
-
-https://huggingface.co/settings/tokens
-
-Create a token with:
+Place one or more `.gguf` files in:
 
 ```text
-Read
+~/ai/models
 ```
 
-permission.
-
-Copy the token.
-
----
-
-## Login
+For example, with the Hugging Face CLI:
 
 ```bash
+python3 -m pip install --user huggingface_hub
 hf auth login
-```
 
-Paste your token when prompted.
-
-Verify:
-
-```bash
-hf auth whoami
-```
-
-Example:
-
-```text
-miruser
-```
-
----
-
-## Token Locations
-
-Active token:
-
-```bash
-~/.cache/huggingface/token
-```
-
-Stored tokens:
-
-```bash
-~/.cache/huggingface/stored_tokens
-```
-
-Show active token:
-
-```bash
-cat ~/.cache/huggingface/token
-```
-
-Logout:
-
-```bash
-hf auth logout
-```
-
----
-
-# Finding Available GGUF Files
-
-Example:
-
-```bash
-wget -qO- https://huggingface.co/api/models/bartowski/Qwen_Qwen3-8B-GGUF \
-| grep -o '"rfilename":"[^"]*"' \
-| cut -d'"' -f4
-```
-
-Example output:
-
-```text
-Qwen3-8B-Q2_K.gguf
-Qwen3-8B-Q3_K_M.gguf
-Qwen3-8B-Q4_K_M.gguf
-Qwen3-8B-Q5_K_M.gguf
-Qwen3-8B-Q6_K.gguf
-Qwen3-8B-Q8_0.gguf
-```
-
----
-
-# Download Models
-
-## Qwen3 8B
-
-```bash
-hf download bartowski/Qwen_Qwen3-8B-GGUF \
-Qwen3-8B-Q4_K_M.gguf \
---local-dir ~/ai/models
-```
-
-## Qwen2.5 Coder 7B
-
-```bash
 hf download bartowski/Qwen2.5-Coder-7B-Instruct-GGUF \
-Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf \
---local-dir ~/ai/models
+  Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf \
+  --local-dir ~/ai/models
 ```
 
-## DeepSeek R1 Distill
+Some model repositories require a Hugging Face account and read token. See
+[Hugging Face access tokens](https://huggingface.co/docs/hub/security-tokens).
 
-```bash
-hf download bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF \
-DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf \
---local-dir ~/ai/models
-```
-
----
-
-# Recommended Quantizations
-
-| Quant  | Quality     | Memory   |
-| ------ | ----------- | -------- |
-| Q2_K   | Lowest      | Smallest |
-| Q3_K_M | Good        | Low      |
-| Q4_K_M | Recommended | Medium   |
-| Q5_K_M | Better      | High     |
-| Q6_K   | Very Good   | Higher   |
-| Q8_0   | Near FP16   | Highest  |
-
-For GPUs with 4 GB VRAM:
+The model ID exposed by the API is the filename without `.gguf`. For example:
 
 ```text
-Q4_K_M
+Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
 ```
 
-It is usually the best balance between quality and speed.
+becomes:
 
----
+```text
+Qwen2.5-Coder-7B-Instruct-Q4_K_M
+```
 
-# Create Models Yaml Config
+## Choose a quantization
+
+| Quantization | Relative quality | Relative memory use |
+| --- | --- | --- |
+| Q2_K | Lowest | Smallest |
+| Q3_K_M | Good | Low |
+| Q4_K_M | Recommended balance | Medium |
+| Q5_K_M | Better | High |
+| Q6_K | Very good | Higher |
+| Q8_0 | Near FP16 | Highest |
+
+`Q4_K_M` is a useful starting point for GPUs with limited VRAM. Actual memory
+use also depends on model size, context length, and GPU-offloaded layers.
+
+## Use the server
+
+Read the selected port:
 
 ```bash
-~/ai/rebuild-config.sh
+PORT=$(cat ~/ai/port)
 ```
----
 
-# Start Server
+List available models:
 
 ```bash
-~/ai/start.sh
+curl "http://127.0.0.1:${PORT}/v1/models"
 ```
 
-Verify:
+Send a chat request:
 
 ```bash
-curl http://localhost:11435/v1/models
+MODEL="Qwen2.5-Coder-7B-Instruct-Q4_K_M"
+
+curl "http://127.0.0.1:${PORT}/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"model\": \"${MODEL}\",
+    \"messages\": [
+      {\"role\": \"user\", \"content\": \"What is Linux?\"}
+    ]
+  }"
 ```
 
-Expected output:
-
-```json
-{
-  "data": [
-    {
-      "id": "qwen3-8b"
-    }
-  ]
-}
-```
-
----
-
-# Test Chat API
-
-```bash
-curl http://localhost:11435/v1/chat/completions \
--H "Content-Type: application/json" \
--d '{
-  "model":"Qwen2.5-Coder-7B-Instruct-Q4_K_M",
-  "messages":[
-    {
-      "role":"user",
-      "content":"What is Linux?"
-    }
-  ]
-}'
-```
-
----
-
-# Python Example
+Python with the OpenAI SDK:
 
 ```python
+from pathlib import Path
 from openai import OpenAI
 
-client = OpenAI(
-    base_url="http://localhost:11435/v1",
-    api_key="local"
-)
+port = Path.home().joinpath("ai/port").read_text().strip()
+client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="local")
 
 response = client.chat.completions.create(
-    model="qwen3-8b",
-    messages=[
-        {"role":"user","content":"Hello"}
-    ]
+    model="Qwen2.5-Coder-7B-Instruct-Q4_K_M",
+    messages=[{"role": "user", "content": "Hello!"}],
 )
 
 print(response.choices[0].message.content)
 ```
 
----
+The local server does not validate `api_key`, but OpenAI client libraries
+usually require a non-empty value.
 
-# Continue IDE
+## Service and helper commands
 
-Example configuration:
+```bash
+# Start, stop, restart, and inspect the systemd service
+systemctl --user start localai
+systemctl --user stop localai
+systemctl --user restart localai
+systemctl --user status localai
 
-```json
-{
-  "title": "Qwen3",
-  "provider": "openai",
-  "model": "qwen3-8b",
-  "apiBase": "http://localhost:11435/v1",
-  "apiKey": "local"
-}
+# Follow service output
+journalctl --user -u localai -f
+
+# Run the helpers directly
+~/ai/start.sh
+~/ai/stop.sh
+~/ai/rebuild-config.sh
+~/ai/update-local-ai.sh
 ```
 
----
-
-# API Endpoints
+Direct-process logs are written to:
 
 ```text
-GET  /v1/models
-POST /v1/chat/completions
-POST /v1/completions
+~/ai/logs/llama-swap.log
 ```
 
-Compatible with:
+## Configuration
 
-* OpenAI SDK
-* Continue
-* Open WebUI
-* LibreChat
-* AnythingLLM
-* Custom Applications
+`rebuild-config.sh` creates `~/ai/config.yaml` from every `.gguf` file in
+`~/ai/models`. It runs automatically whenever the server starts.
 
----
+The defaults are:
 
-# Systemd Service
+- Context size: `32768`
+- GPU layers: `10`
+- KV cache: `q8_0`
+- Idle model timeout: `900` seconds
 
-Enable automatic startup:
+Override context size or GPU layers for one start:
 
 ```bash
-systemctl --user enable --now localai.service
+CTX_SIZE=8192 N_GPU_LAYERS=20 ~/ai/start.sh
 ```
 
-Check status:
+If you use systemd and want persistent overrides, add them with:
 
 ```bash
-systemctl --user status localai.service
+systemctl --user edit localai
 ```
 
-Restart:
+Then enter:
 
-```bash
-systemctl --user restart localai.service
+```ini
+[Service]
+Environment=CTX_SIZE=8192
+Environment=N_GPU_LAYERS=20
 ```
 
-Stop:
+Apply the change:
 
 ```bash
-systemctl --user stop localai.service
+systemctl --user daemon-reload
+systemctl --user restart localai
 ```
 
----
+## Update
 
-# Troubleshooting
-
-## Unauthorized Download (401)
+From the cloned repository:
 
 ```bash
-hf auth logout
-hf auth login
+./update-local-ai.sh
 ```
 
-Verify:
+Or use the installed copy:
 
 ```bash
-hf auth whoami
+~/ai/update-local-ai.sh
 ```
 
----
+The updater checks GitHub for the latest compatible releases, refreshes the
+installed helper scripts when run from the repository, updates outdated
+components, and preserves models and the configured port. By default it starts
+the server after an update; use `--no-start` to leave it stopped.
 
-## Model Not Found
+## Troubleshooting
+
+Check the configured port and models:
 
 ```bash
+cat ~/ai/port
 ls -lh ~/ai/models
+curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
 ```
 
----
-
-## Check Available Models
-
-```bash
-curl http://localhost:11435/v1/models
-```
-
----
-
-## Check Running Processes
-
-```bash
-ps aux | grep llama
-ps aux | grep llama-swap
-```
-
----
-
-## Check GPU Detection
+Check GPU detection:
 
 ```bash
 ~/ai/bin/llama-server --list-devices
 ```
 
-Example:
-
-```text
-Vulkan0: Intel Iris Xe
-Vulkan1: NVIDIA GeForce RTX 3050 Laptop GPU
-```
-
----
-
-# Updating LocalAI
-
-Update LocalAI components:
+Check logs:
 
 ```bash
-./update-local-ai.sh
+tail -n 100 ~/ai/logs/llama-swap.log
+journalctl --user -u localai -n 100 --no-pager
 ```
-The update script:
 
-* Updates llama.cpp
-* Updates llama-swap
-* Updates helper scripts
-* Preserves installed models
-* Rebuilds configuration when required
+If a Hugging Face download returns `401 Unauthorized`:
 
----
+```bash
+hf auth logout
+hf auth login
+hf auth whoami
+```
 
-## Production Fixes Included
+## Security
 
-- Systemd user service
-- Logging support
-- PID file management
-- Improved startup/shutdown handling
-- Better GPU offload defaults
+The helper scripts bind llama-swap to `127.0.0.1`, so the API is available only
+on the local machine by default. Do not expose it to a network without adding
+authentication, TLS, and appropriate firewall rules.
 
----
+## License
 
-## Credits
-
-This project is built on top of:
-
-- https://github.com/ggml-org/llama.cpp
-- https://github.com/mostlygeek/llama-swap
-
-Special thanks to the maintainers and contributors of these projects.
-
-LocalAI focuses on simplifying installation, configuration, model management, and service deployment for local LLM environments.
-
----
-
-# License
-
-MIT License
+MIT
