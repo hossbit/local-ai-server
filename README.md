@@ -251,7 +251,8 @@ Or use the installed copy:
 The updater checks GitHub for the latest compatible releases, refreshes the
 installed helper scripts when run from the repository, updates outdated
 components, and preserves models and the configured port. By default it starts
-the server after an update; use `--no-start` to leave it stopped.
+the server after an update, using the systemd user service when it is installed;
+use `--no-start` to leave it stopped.
 
 ## Troubleshooting
 

@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
 LLAMA_SWAP_API="https://api.github.com/repos/mostlygeek/llama-swap/releases/latest"
 START_AFTER_UPDATE=1
+SERVICE_NAME="localai.service"
 
 if [ "${1:-}" = "--no-start" ]; then
   START_AFTER_UPDATE=0
@@ -22,6 +23,31 @@ log() {
 fail() {
   echo "Error: $*" >&2
   exit 1
+}
+
+has_user_service() {
+  command -v systemctl >/dev/null 2>&1 &&
+    systemctl --user cat "$SERVICE_NAME" >/dev/null 2>&1
+}
+
+stop_localai() {
+  if has_user_service; then
+    systemctl --user stop "$SERVICE_NAME"
+  elif [ -x "$AI_DIR/stop.sh" ]; then
+    "$AI_DIR/stop.sh"
+  elif [ -x "$SCRIPT_DIR/stop.sh" ]; then
+    "$SCRIPT_DIR/stop.sh"
+  fi
+}
+
+start_localai() {
+  if has_user_service; then
+    systemctl --user start "$SERVICE_NAME"
+  elif [ -x "$AI_DIR/start.sh" ]; then
+    "$AI_DIR/start.sh"
+  else
+    log "Updated successfully; run the installer to create the service and helper scripts"
+  fi
 }
 
 for COMMAND in curl jq tar; do
@@ -89,11 +115,7 @@ if ((NEED_CPP == 0 && NEED_SWAP == 0)); then
   exit 0
 fi
 
-if [ -x "$AI_DIR/stop.sh" ]; then
-  "$AI_DIR/stop.sh"
-elif [ -x "$SCRIPT_DIR/stop.sh" ]; then
-  "$SCRIPT_DIR/stop.sh"
-fi
+stop_localai
 
 if ((NEED_CPP)); then
   log "Installing llama.cpp $LLAMA_CPP_TAG"
@@ -128,11 +150,7 @@ if ((NEED_SWAP)); then
 fi
 
 if [ "$START_AFTER_UPDATE" -eq 1 ]; then
-  if [ -x "$AI_DIR/start.sh" ]; then
-    "$AI_DIR/start.sh"
-  else
-    log "Updated successfully; run the installer to create the service and helper scripts"
-  fi
+  start_localai
 else
   log "Updated successfully"
 fi
