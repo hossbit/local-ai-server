@@ -19,6 +19,13 @@ fail() {
   exit 1
 }
 
+cleanup_bin_artifacts() {
+  log "Cleaning old llama.cpp folders and archives"
+
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp -exec rm -rf -- {} +
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
+}
+
 [ "$(uname -m)" = "x86_64" ] || fail "this installer currently supports x86_64 Linux only"
 
 mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
@@ -85,6 +92,7 @@ exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
 
 install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
+cleanup_bin_artifacts
 
 ###############################################################################
 # INSTALL LLAMA-SWAP

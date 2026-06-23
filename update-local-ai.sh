@@ -50,15 +50,34 @@ start_localai() {
   fi
 }
 
+cleanup_bin_artifacts() {
+  log "Cleaning old llama.cpp folders and archives"
+
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp -exec rm -rf -- {} +
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
+}
+
+###############################################################################
+# CHECK REQUIREMENTS
+###############################################################################
+
 for COMMAND in curl jq tar; do
   command -v "$COMMAND" >/dev/null 2>&1 || fail "required command not found: $COMMAND"
 done
 
 [ "$(uname -m)" = "x86_64" ] || fail "this updater currently supports x86_64 Linux only"
 
+###############################################################################
+# PREPARE WORKSPACE
+###############################################################################
+
 mkdir -p "$AI_DIR" "$BIN_DIR"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
+
+###############################################################################
+# REFRESH INSTALLED HELPER SCRIPTS
+###############################################################################
 
 if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
   for SCRIPT in start.sh stop.sh rebuild-config.sh update-local-ai.sh; do
@@ -67,6 +86,10 @@ if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
     fi
   done
 fi
+
+###############################################################################
+# FETCH LATEST RELEASE METADATA
+###############################################################################
 
 log "Fetching release metadata"
 LLAMA_CPP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_API")
@@ -84,6 +107,10 @@ LLAMA_SWAP_URL=$(jq -er \
 [ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp Ubuntu Vulkan x64 asset found"
 [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found"
 
+###############################################################################
+# DETECT INSTALLED VERSIONS
+###############################################################################
+
 CURRENT_LLAMA_CPP=$(
   "$BIN_DIR/llama-server" --version 2>&1 |
     awk '/version:/ {print $2; exit}' || true
@@ -96,6 +123,10 @@ CURRENT_LLAMA_SWAP=$(
 
 printf 'llama.cpp:  installed=%s latest=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG"
 printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LLAMA_SWAP_TAG"
+
+###############################################################################
+# DECIDE WHAT NEEDS UPDATING
+###############################################################################
 
 NEED_CPP=1
 NEED_SWAP=1
@@ -112,10 +143,19 @@ fi
 
 if ((NEED_CPP == 0 && NEED_SWAP == 0)); then
   log "Everything is already up to date"
+  cleanup_bin_artifacts
   exit 0
 fi
 
+###############################################################################
+# STOP RUNNING SERVICE
+###############################################################################
+
 stop_localai
+
+###############################################################################
+# INSTALL LLAMA.CPP
+###############################################################################
 
 if ((NEED_CPP)); then
   log "Installing llama.cpp $LLAMA_CPP_TAG"
@@ -138,6 +178,16 @@ EOF
   install -m755 "$TMP_DIR/llama-server" "$BIN_DIR/llama-server"
 fi
 
+###############################################################################
+# CLEAN OLD LLAMA.CPP FOLDERS AND ARCHIVES
+###############################################################################
+
+cleanup_bin_artifacts
+
+###############################################################################
+# INSTALL LLAMA-SWAP
+###############################################################################
+
 if ((NEED_SWAP)); then
   log "Installing llama-swap $LLAMA_SWAP_TAG"
   mkdir -p "$TMP_DIR/llama-swap"
@@ -148,6 +198,10 @@ if ((NEED_SWAP)); then
   [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the downloaded archive"
   sudo install -m755 "$LLAMA_SWAP_REAL" /usr/local/bin/llama-swap
 fi
+
+###############################################################################
+# RESTART SERVICE
+###############################################################################
 
 if [ "$START_AFTER_UPDATE" -eq 1 ]; then
   start_localai
