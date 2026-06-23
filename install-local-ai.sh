@@ -152,6 +152,7 @@ install -m755 "$SCRIPT_DIR/start.sh" "$AI_DIR/start.sh"
 install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
 install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
 install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$AI_DIR/update-local-ai.sh"
+install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$AI_DIR/uninstall-local-ai.sh"
 
 if ! systemctl --user daemon-reload; then
   echo "Warning: could not reload the systemd user manager." >&2
@@ -199,6 +200,9 @@ echo "    ~/ai/rebuild-config.sh"
 echo
 echo "  Update components:"
 echo "    ~/ai/update-local-ai.sh"
+echo
+echo "  Uninstall:"
+echo "    ~/ai/uninstall-local-ai.sh"
 echo
 echo "API endpoint:"
 echo "  http://localhost:$(cat "$AI_DIR/port")"

@@ -187,6 +187,7 @@ journalctl --user -u localai -f
 ~/ai/stop.sh
 ~/ai/rebuild-config.sh
 ~/ai/update-local-ai.sh
+~/ai/uninstall-local-ai.sh
 ```
 
 Direct-process logs are written to:
@@ -253,6 +254,26 @@ installed helper scripts when run from the repository, updates outdated
 components, and preserves models and the configured port. By default it starts
 the server after an update, using the systemd user service when it is installed;
 use `--no-start` to leave it stopped.
+
+## Uninstall
+
+Remove the user service and installed helper files:
+
+```bash
+~/ai/uninstall-local-ai.sh
+```
+
+By default the uninstaller keeps `~/ai/models`. To remove downloaded models too:
+
+```bash
+~/ai/uninstall-local-ai.sh --remove-models
+```
+
+To also remove the shared `llama-swap` binary installed in `/usr/local/bin`:
+
+```bash
+~/ai/uninstall-local-ai.sh --remove-llama-swap
+```
 
 ## Troubleshooting
 

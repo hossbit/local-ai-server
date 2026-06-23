@@ -80,7 +80,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 ###############################################################################
 
 if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
-  for SCRIPT in start.sh stop.sh rebuild-config.sh update-local-ai.sh; do
+  for SCRIPT in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh; do
     if [ -f "$SCRIPT_DIR/$SCRIPT" ]; then
       install -m755 "$SCRIPT_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
     fi
