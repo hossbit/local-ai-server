@@ -5,8 +5,11 @@ AI_DIR="$HOME/ai"
 CONFIG="$AI_DIR/config.yaml"
 MODELS_DIR="$AI_DIR/models"
 BIN="$AI_DIR/bin/llama-server"
-CTX_SIZE="${CTX_SIZE:-32768}"
-N_GPU_LAYERS="${N_GPU_LAYERS:-10}"
+CTX_SIZE="${CTX_SIZE:-16384}"
+N_GPU_LAYERS="${N_GPU_LAYERS:-8}"
+THREADS="${THREADS:-6}"
+CACHE_TYPE_K="${CACHE_TYPE_K:-q4_0}"
+CACHE_TYPE_V="${CACHE_TYPE_V:-q4_0}"
 
 if ! [[ "$CTX_SIZE" =~ ^[0-9]+$ ]] || ((CTX_SIZE < 1)); then
   echo "Error: CTX_SIZE must be a positive integer." >&2
@@ -15,6 +18,11 @@ fi
 
 if ! [[ "$N_GPU_LAYERS" =~ ^[0-9]+$ ]]; then
   echo "Error: N_GPU_LAYERS must be a non-negative integer." >&2
+  exit 1
+fi
+
+if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
+  echo "Error: THREADS must be a non-negative integer." >&2
   exit 1
 fi
 
@@ -46,10 +54,10 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
       --port \${PORT}
       --model "$MODEL"
       --n-gpu-layers $N_GPU_LAYERS
-      -t 0
+      -t $THREADS
       --ctx-size $CTX_SIZE
-      --cache-type-k q8_0
-      --cache-type-v q8_0
+      --cache-type-k $CACHE_TYPE_K
+      --cache-type-v $CACHE_TYPE_V
 
 MODELCFG
 done

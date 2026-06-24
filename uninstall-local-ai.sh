@@ -59,6 +59,10 @@ remove_if_exists() {
   fi
 }
 
+path_exists() {
+  [ -e "$1" ] || [ -L "$1" ]
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --remove-models) REMOVE_MODELS=1 ;;
@@ -76,36 +80,92 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-cat <<EOF
-This will uninstall LocalAI for the current user.
+REMOVE_TARGETS=()
+KEEP_TARGETS=()
+EXTRA_REMOVE_TARGETS=()
+HAS_USER_SERVICE=0
 
-Will remove:
-  $SERVICE_FILE
-  $BIN_DIR
-  $AI_DIR/start.sh
-  $AI_DIR/stop.sh
-  $AI_DIR/rebuild-config.sh
-  $AI_DIR/update-local-ai.sh
-  $AI_DIR/uninstall-local-ai.sh
-  $AI_DIR/config.yaml
-  $AI_DIR/port
-  $AI_DIR/logs
-  $AI_DIR/llama-swap.pid
+if has_user_service; then
+  HAS_USER_SERVICE=1
+fi
 
-Will keep:
-  $MODELS_DIR
-
-EOF
+for TARGET in \
+  "$SERVICE_FILE" \
+  "$BIN_DIR" \
+  "$AI_DIR/start.sh" \
+  "$AI_DIR/stop.sh" \
+  "$AI_DIR/rebuild-config.sh" \
+  "$AI_DIR/update-local-ai.sh" \
+  "$AI_DIR/uninstall-local-ai.sh" \
+  "$AI_DIR/config.yaml" \
+  "$AI_DIR/port" \
+  "$AI_DIR/logs" \
+  "$AI_DIR/llama-swap.pid"
+do
+  if path_exists "$TARGET"; then
+    REMOVE_TARGETS+=("$TARGET")
+  fi
+done
 
 if [ "$REMOVE_MODELS" -eq 1 ]; then
-  echo "Will also remove:"
-  echo "  $MODELS_DIR"
-  echo
+  if path_exists "$MODELS_DIR"; then
+    EXTRA_REMOVE_TARGETS+=("$MODELS_DIR")
+  fi
+elif path_exists "$MODELS_DIR"; then
+  KEEP_TARGETS+=("$MODELS_DIR")
 fi
 
 if [ "$REMOVE_LLAMA_SWAP" -eq 1 ]; then
-  echo "Will also remove:"
-  echo "  /usr/local/bin/llama-swap"
+  if path_exists /usr/local/bin/llama-swap; then
+    EXTRA_REMOVE_TARGETS+=("/usr/local/bin/llama-swap")
+  fi
+elif path_exists /usr/local/bin/llama-swap; then
+  KEEP_TARGETS+=("/usr/local/bin/llama-swap")
+fi
+
+if [ "$HAS_USER_SERVICE" -eq 0 ] && [ "${#REMOVE_TARGETS[@]}" -eq 0 ] && [ "${#EXTRA_REMOVE_TARGETS[@]}" -eq 0 ]; then
+  echo "LocalAI is already uninstalled for the current user."
+  if [ "${#KEEP_TARGETS[@]}" -gt 0 ]; then
+    echo
+    echo "Kept:"
+    for TARGET in "${KEEP_TARGETS[@]}"; do
+      echo "  $TARGET"
+    done
+  fi
+  exit 0
+fi
+
+echo "This will uninstall LocalAI for the current user."
+echo
+
+if [ "$HAS_USER_SERVICE" -eq 1 ] || [ "${#REMOVE_TARGETS[@]}" -gt 0 ]; then
+  echo "Will remove:"
+  if [ "$HAS_USER_SERVICE" -eq 1 ]; then
+    echo "  systemd user service $SERVICE_NAME"
+  fi
+  for TARGET in "${REMOVE_TARGETS[@]}"; do
+    echo "  $TARGET"
+  done
+  echo
+fi
+
+if [ "${#KEEP_TARGETS[@]}" -gt 0 ]; then
+  echo "Will keep:"
+  for TARGET in "${KEEP_TARGETS[@]}"; do
+    echo "  $TARGET"
+  done
+  echo
+fi
+
+if [ "${#EXTRA_REMOVE_TARGETS[@]}" -gt 0 ]; then
+  if [ "$HAS_USER_SERVICE" -eq 1 ] || [ "${#REMOVE_TARGETS[@]}" -gt 0 ]; then
+    echo "Will also remove:"
+  else
+    echo "Will remove:"
+  fi
+  for TARGET in "${EXTRA_REMOVE_TARGETS[@]}"; do
+    echo "  $TARGET"
+  done
   echo
 fi
 

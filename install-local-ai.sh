@@ -37,7 +37,7 @@ mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
 log "Installing system dependencies"
 
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl iproute2 tar
+sudo apt-get install -y ca-certificates curl iproute2 jq tar
 
 ###############################################################################
 # DOWNLOAD RELEASE ARCHIVES

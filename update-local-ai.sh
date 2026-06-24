@@ -32,22 +32,34 @@ has_user_service() {
 
 stop_localai() {
   if has_user_service; then
+    log "Stopping LocalAI service"
     systemctl --user stop "$SERVICE_NAME"
   elif [ -x "$AI_DIR/stop.sh" ]; then
+    log "Stopping LocalAI"
     "$AI_DIR/stop.sh"
   elif [ -x "$SCRIPT_DIR/stop.sh" ]; then
+    log "Stopping LocalAI"
     "$SCRIPT_DIR/stop.sh"
   fi
 }
 
 start_localai() {
   if has_user_service; then
+    log "Starting LocalAI service"
     systemctl --user start "$SERVICE_NAME"
   elif [ -x "$AI_DIR/start.sh" ]; then
+    log "Starting LocalAI"
     "$AI_DIR/start.sh"
   else
     log "Updated successfully; run the installer to create the service and helper scripts"
   fi
+}
+
+print_current_versions() {
+  echo
+  echo "Current versions:"
+  "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
+  llama-swap --version 2>&1 | awk 'NR == 1 {print; exit}'
 }
 
 cleanup_bin_artifacts() {
@@ -144,6 +156,7 @@ fi
 if ((NEED_CPP == 0 && NEED_SWAP == 0)); then
   log "Everything is already up to date"
   cleanup_bin_artifacts
+  print_current_versions
   exit 0
 fi
 
@@ -206,5 +219,8 @@ fi
 if [ "$START_AFTER_UPDATE" -eq 1 ]; then
   start_localai
 else
-  log "Updated successfully"
+  log "Service left stopped (--no-start)"
 fi
+
+log "LocalAI update completed"
+print_current_versions
