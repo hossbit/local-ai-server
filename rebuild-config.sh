@@ -39,6 +39,15 @@ MODEL_COUNT=0
 for MODEL in "$MODELS_DIR"/*.gguf; do
   [ -f "$MODEL" ] || continue
   NAME=$(basename "$MODEL" .gguf)
+  EXTRA_ARGS=""
+  case "${NAME,,}" in
+    *qwen3*embedding*)
+      EXTRA_ARGS="--embeddings --pooling last"
+      ;;
+    *embedding*|*embed*|*bge*|*e5*)
+      EXTRA_ARGS="--embeddings"
+      ;;
+  esac
   if [[ "$NAME" == *['"$`\']* ]]; then
     echo "Skipping unsupported model filename: $(basename "$MODEL")" >&2
     continue
@@ -53,6 +62,7 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
       "$BIN"
       --port \${PORT}
       --model "$MODEL"
+      $EXTRA_ARGS
       --n-gpu-layers $N_GPU_LAYERS
       -t $THREADS
       --ctx-size $CTX_SIZE
