@@ -1,8 +1,22 @@
 # Local AI Server
 
-![Linux](https://img.shields.io/badge/Linux-Ubuntu-orange)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-hero.png" alt="LocalAI local LLM server" width="900">
+</div>
+
+<div align="center">
+
+![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian-orange)
 ![llama.cpp](https://img.shields.io/badge/llama.cpp-Vulkan-blue)
+![API](https://img.shields.io/badge/API-OpenAI--compatible-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+</div>
+
+<div align="center">
+  <a href="https://buymeacoffee.com/mirhh">
+    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.png" alt="Buy me a coffee" width="300">
+  </a>
+</div>
 
 Run GGUF language models locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
