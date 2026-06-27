@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-AI_DIR="$HOME/ai"
-BIN_DIR="$AI_DIR/bin"
-MODELS_DIR="$AI_DIR/models"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AI_DIR=""
+BIN_DIR=""
+MODELS_DIR=""
 SERVICE_NAME="localai.service"
 SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME"
 REMOVE_MODELS=0
 REMOVE_LLAMA_SWAP=0
 FORCE=0
+
+expand_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "${value:0:2}" == "~/" ]]; then
+    printf '%s/%s\n' "$HOME" "${value:2}"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+resolve_ai_dir() {
+  if [ -n "${LOCALAI_DIR:-}" ]; then
+    expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
+    printf '%s\n' "$HOME/ai"
+  else
+    printf '%s\n' "$SCRIPT_DIR"
+  fi
+}
 
 usage() {
   cat <<EOF
@@ -63,6 +85,10 @@ path_exists() {
   [ -e "$1" ] || [ -L "$1" ]
 }
 
+AI_DIR="$(resolve_ai_dir)"
+BIN_DIR="$AI_DIR/bin"
+MODELS_DIR="$AI_DIR/models"
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --remove-models) REMOVE_MODELS=1 ;;
@@ -97,6 +123,7 @@ for TARGET in \
   "$AI_DIR/rebuild-config.sh" \
   "$AI_DIR/update-local-ai.sh" \
   "$AI_DIR/uninstall-local-ai.sh" \
+  "$AI_DIR/llama-cpp-backend" \
   "$AI_DIR/config.yaml" \
   "$AI_DIR/port" \
   "$AI_DIR/logs" \
@@ -209,6 +236,7 @@ remove_if_exists "$AI_DIR/stop.sh"
 remove_if_exists "$AI_DIR/rebuild-config.sh"
 remove_if_exists "$AI_DIR/update-local-ai.sh"
 remove_if_exists "$AI_DIR/uninstall-local-ai.sh"
+remove_if_exists "$AI_DIR/llama-cpp-backend"
 remove_if_exists "$AI_DIR/config.yaml"
 remove_if_exists "$AI_DIR/port"
 remove_if_exists "$AI_DIR/logs"

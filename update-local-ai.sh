@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-AI_DIR="$HOME/ai"
-BIN_DIR="$AI_DIR/bin"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AI_DIR=""
+BIN_DIR=""
 LLAMA_CPP_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
 LLAMA_SWAP_API="https://api.github.com/repos/mostlygeek/llama-swap/releases/latest"
+LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-}"
+LLAMA_CPP_ASSET_RE=""
 START_AFTER_UPDATE=1
 SERVICE_NAME="localai.service"
 
@@ -23,6 +25,62 @@ log() {
 fail() {
   echo "Error: $*" >&2
   exit 1
+}
+
+expand_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "${value:0:2}" == "~/" ]]; then
+    printf '%s/%s\n' "$HOME" "${value:2}"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+resolve_ai_dir() {
+  if [ -n "${LOCALAI_DIR:-}" ]; then
+    expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
+    printf '%s\n' "$HOME/ai"
+  else
+    printf '%s\n' "$SCRIPT_DIR"
+  fi
+}
+
+select_llama_cpp_asset_regex() {
+  if [ -z "$LLAMA_CPP_BACKEND" ]; then
+    if [ -f "$AI_DIR/llama-cpp-backend" ]; then
+      LLAMA_CPP_BACKEND="$(<"$AI_DIR/llama-cpp-backend")"
+    else
+      LLAMA_CPP_BACKEND="vulkan"
+    fi
+  fi
+
+  case "$LLAMA_CPP_BACKEND" in
+    cpu)
+      LLAMA_CPP_ASSET_RE="ubuntu-x64\\.tar\\.gz$"
+      ;;
+    vulkan)
+      LLAMA_CPP_ASSET_RE="ubuntu-vulkan-x64\\.tar\\.gz$"
+      ;;
+    rocm)
+      LLAMA_CPP_ASSET_RE="ubuntu-rocm-x64\\.tar\\.gz$"
+      ;;
+    openvino)
+      LLAMA_CPP_ASSET_RE="ubuntu-openvino-x64\\.tar\\.gz$"
+      ;;
+    sycl-fp16)
+      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp16-x64\\.tar\\.gz$"
+      ;;
+    sycl-fp32|sycl)
+      LLAMA_CPP_BACKEND="sycl-fp32"
+      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp32-x64\\.tar\\.gz$"
+      ;;
+    *)
+      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
+      ;;
+  esac
 }
 
 has_user_service() {
@@ -59,7 +117,25 @@ print_current_versions() {
   echo
   echo "Current versions:"
   "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
+  echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
   llama-swap --version 2>&1 | awk 'NR == 1 {print; exit}'
+}
+
+verify_llama_server() {
+  if "$BIN_DIR/llama-server" --version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  cat >&2 <<EOF
+Error: installed llama.cpp backend '$LLAMA_CPP_BACKEND' did not run on this system.
+
+Try another backend, for example:
+  LLAMA_CPP_BACKEND=cpu $0
+  LLAMA_CPP_BACKEND=vulkan $0
+
+Or install the missing runtime libraries for your selected backend and rerun.
+EOF
+  exit 1
 }
 
 cleanup_bin_artifacts() {
@@ -78,6 +154,10 @@ for COMMAND in curl jq tar; do
 done
 
 [ "$(uname -m)" = "x86_64" ] || fail "this updater currently supports x86_64 Linux only"
+
+AI_DIR="$(resolve_ai_dir)"
+BIN_DIR="$AI_DIR/bin"
+select_llama_cpp_asset_regex
 
 ###############################################################################
 # PREPARE WORKSPACE
@@ -110,13 +190,14 @@ LLAMA_SWAP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_SWAP_
 LLAMA_CPP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_CPP_JSON")
 LLAMA_SWAP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")
 LLAMA_CPP_URL=$(jq -er \
-  '.assets[] | select(.name | test("ubuntu-vulkan-x64\\.tar\\.gz$")) | .browser_download_url' \
-  <<<"$LLAMA_CPP_JSON" | head -n1)
+  --arg pattern "$LLAMA_CPP_ASSET_RE" \
+  '.assets[] | select(.name | test($pattern)) | .browser_download_url' \
+  <<<"$LLAMA_CPP_JSON" | head -n1 || true)
 LLAMA_SWAP_URL=$(jq -er \
   '.assets[] | select(.name | test("linux_amd64\\.tar\\.gz$")) | .browser_download_url' \
-  <<<"$LLAMA_SWAP_JSON" | head -n1)
+  <<<"$LLAMA_SWAP_JSON" | head -n1 || true)
 
-[ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp Ubuntu Vulkan x64 asset found"
+[ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp asset found for backend: $LLAMA_CPP_BACKEND"
 [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found"
 
 ###############################################################################
@@ -132,8 +213,12 @@ CURRENT_LLAMA_SWAP=$(
     grep -oE 'v?[0-9]+' |
     head -n1 || true
 )
+CURRENT_LLAMA_CPP_BACKEND=""
+if [ -f "$AI_DIR/llama-cpp-backend" ]; then
+  CURRENT_LLAMA_CPP_BACKEND="$(<"$AI_DIR/llama-cpp-backend")"
+fi
 
-printf 'llama.cpp:  installed=%s latest=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG"
+printf 'llama.cpp:  installed=%s latest=%s backend=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG" "$LLAMA_CPP_BACKEND"
 printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LLAMA_SWAP_TAG"
 
 ###############################################################################
@@ -146,6 +231,9 @@ if [ -n "$CURRENT_LLAMA_CPP" ]; then
   case "$LLAMA_CPP_TAG" in
     *"$CURRENT_LLAMA_CPP"*) NEED_CPP=0 ;;
   esac
+fi
+if [ "$CURRENT_LLAMA_CPP_BACKEND" != "$LLAMA_CPP_BACKEND" ]; then
+  NEED_CPP=1
 fi
 if [ -n "$CURRENT_LLAMA_SWAP" ]; then
   case "$LLAMA_SWAP_TAG" in
@@ -189,6 +277,8 @@ export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
 exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
   install -m755 "$TMP_DIR/llama-server" "$BIN_DIR/llama-server"
+  echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/llama-cpp-backend"
+  verify_llama_server
 fi
 
 ###############################################################################

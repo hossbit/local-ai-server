@@ -1,7 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AI_DIR="$HOME/ai"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+expand_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "${value:0:2}" == "~/" ]]; then
+    printf '%s/%s\n' "$HOME" "${value:2}"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+resolve_ai_dir() {
+  if [ -n "${LOCALAI_DIR:-}" ]; then
+    expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
+    printf '%s\n' "$HOME/ai"
+  else
+    printf '%s\n' "$SCRIPT_DIR"
+  fi
+}
+
+AI_DIR="$(resolve_ai_dir)"
 CONFIG="$AI_DIR/config.yaml"
 MODELS_DIR="$AI_DIR/models"
 BIN="$AI_DIR/bin/llama-server"

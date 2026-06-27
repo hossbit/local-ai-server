@@ -6,8 +6,8 @@
 
 <div align="center">
 
-![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian-orange)
-![llama.cpp](https://img.shields.io/badge/llama.cpp-Vulkan-blue)
+![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian%20%7C%20Fedora%20%7C%20RHEL-orange)
+![llama.cpp](https://img.shields.io/badge/llama.cpp-CPU%20%7C%20Vulkan%20%7C%20ROCm-blue)
 ![API](https://img.shields.io/badge/API-OpenAI--compatible-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 </div>
@@ -20,15 +20,15 @@
 
 Run GGUF language models locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
-Vulkan GPU acceleration, and
+CPU or GPU acceleration, and
 [llama-swap](https://github.com/mostlygeek/llama-swap).
 The server exposes an OpenAI-compatible API and discovers models placed in
-`~/ai/models`.
+the configured install directory, which defaults to `~/ai/models`.
 
 ## What it provides
 
 - OpenAI-compatible chat and completion endpoints
-- Vulkan acceleration on supported NVIDIA, AMD, and Intel GPUs
+- CPU mode plus optional Vulkan, ROCm, OpenVINO, or SYCL llama.cpp backends
 - Automatic discovery of `.gguf` model files
 - On-demand model loading and switching through llama-swap
 - A systemd user service
@@ -41,7 +41,7 @@ OpenAI-compatible client
  llama-swap (localhost)
           |
           v
- llama.cpp + Vulkan
+ llama.cpp
           |
           v
     GGUF model files
@@ -49,13 +49,18 @@ OpenAI-compatible client
 
 ## Requirements
 
-- Ubuntu or Debian on an x86-64 machine
-- A Vulkan-capable GPU and working Vulkan driver
+- Ubuntu, Debian, Fedora, RHEL, or another compatible x86-64 Linux system
+- A working CPU install, or a supported GPU/runtime for your selected backend
 - `sudo` access during installation
 - Enough RAM and VRAM for the model and quantization you choose
 
 The installer uses the known compatible releases `llama.cpp b9672` and
 `llama-swap v226`. The separate update script checks for newer releases.
+The default llama.cpp backend is `vulkan`.
+
+The installer can install required packages with `apt-get`, `dnf`, or `yum`.
+Upstream llama.cpp Linux x64 release archives currently use `ubuntu` in their
+file names, even when they can run on other compatible Linux distributions.
 
 ## Install
 
@@ -66,13 +71,42 @@ chmod +x ./*.sh
 ./install-local-ai.sh
 ```
 
+The installer asks where to install LocalAI:
+
+```text
+LocalAI install directory [~/ai]:
+```
+
+Press Enter to use the default `~/ai`. To choose the path without a prompt, set
+`LOCALAI_DIR`:
+
+```bash
+LOCALAI_DIR=~/my-ai ./install-local-ai.sh
+```
+
+Choose a llama.cpp backend with `LLAMA_CPP_BACKEND`. The default is `vulkan`.
+
+```bash
+LLAMA_CPP_BACKEND=cpu ./install-local-ai.sh
+LLAMA_CPP_BACKEND=vulkan ./install-local-ai.sh
+LLAMA_CPP_BACKEND=rocm ./install-local-ai.sh
+LLAMA_CPP_BACKEND=openvino ./install-local-ai.sh
+LLAMA_CPP_BACKEND=sycl-fp16 ./install-local-ai.sh
+LLAMA_CPP_BACKEND=sycl-fp32 ./install-local-ai.sh
+```
+
+Fedora and RHEL systems use the same upstream Linux x64 llama.cpp archives as
+Ubuntu/Debian. If a selected backend cannot run because a runtime library is
+missing, the installer stops after testing `llama-server --version` and tells
+you to install the missing runtime or retry with another backend such as `cpu`.
+
 The installer:
 
 1. Installs required system packages.
-2. Downloads the pinned llama.cpp b9672 and llama-swap v226 releases.
-3. Creates `~/ai/bin`, `~/ai/models`, and the helper scripts.
+2. Downloads the pinned llama.cpp b9672 backend archive and llama-swap v226.
+3. Creates `bin`, `models`, and the helper scripts inside the install directory.
 4. Selects an available port, beginning at `11435`.
-5. Creates a systemd user service.
+5. Creates a systemd user service that points to the selected install directory.
 
 The installer does not start the server automatically. Add at least one model,
 then start it with:
@@ -94,6 +128,8 @@ Place one or more `.gguf` files in:
 ```text
 ~/ai/models
 ```
+
+If you installed somewhere else, use that directory's `models` folder instead.
 
 For example, with the Hugging Face CLI:
 
@@ -141,6 +177,12 @@ Read the selected port:
 
 ```bash
 PORT=$(cat ~/ai/port)
+```
+
+For a custom install directory:
+
+```bash
+PORT=$(cat ~/my-ai/port)
 ```
 
 List available models:
@@ -204,6 +246,8 @@ journalctl --user -u localai -f
 ~/ai/uninstall-local-ai.sh
 ```
 
+Replace `~/ai` with your selected install directory if you chose a custom path.
+
 Direct-process logs are written to:
 
 ```text
@@ -212,8 +256,9 @@ Direct-process logs are written to:
 
 ## Configuration
 
-`rebuild-config.sh` creates `~/ai/config.yaml` from every `.gguf` file in
-`~/ai/models`. It runs automatically whenever the server starts.
+`rebuild-config.sh` creates `config.yaml` from every `.gguf` file in the
+install directory's `models` folder. It runs automatically whenever the server
+starts.
 
 The defaults are:
 
@@ -227,6 +272,8 @@ Override context size or GPU layers for one start:
 ```bash
 CTX_SIZE=8192 N_GPU_LAYERS=20 ~/ai/start.sh
 ```
+
+For a custom install directory, run that directory's `start.sh` instead.
 
 If you use systemd and want persistent overrides, add them with:
 
@@ -263,11 +310,24 @@ Or use the installed copy:
 ~/ai/update-local-ai.sh
 ```
 
+For a custom install directory:
+
+```bash
+~/my-ai/update-local-ai.sh
+```
+
 The updater checks GitHub for the latest compatible releases, refreshes the
 installed helper scripts when run from the repository, updates outdated
 components, and preserves models and the configured port. By default it starts
 the server after an update, using the systemd user service when it is installed;
 use `--no-start` to leave it stopped.
+
+The updater keeps the installed llama.cpp backend. To switch backend during an
+update, pass `LLAMA_CPP_BACKEND`:
+
+```bash
+LLAMA_CPP_BACKEND=cpu ~/ai/update-local-ai.sh
+```
 
 ## Uninstall
 
@@ -277,7 +337,14 @@ Remove the user service and installed helper files:
 ~/ai/uninstall-local-ai.sh
 ```
 
-By default the uninstaller keeps `~/ai/models`. To remove downloaded models too:
+For a custom install directory:
+
+```bash
+~/my-ai/uninstall-local-ai.sh
+```
+
+By default the uninstaller keeps the install directory's `models` folder. To
+remove downloaded models too:
 
 ```bash
 ~/ai/uninstall-local-ai.sh --remove-models
@@ -298,6 +365,8 @@ cat ~/ai/port
 ls -lh ~/ai/models
 curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
 ```
+
+Replace `~/ai` with your selected install directory if needed.
 
 Check GPU detection:
 
