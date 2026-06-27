@@ -6,10 +6,21 @@
 
 <div align="center">
 
-![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian%20%7C%20Fedora%20%7C%20RHEL-orange)
-![llama.cpp](https://img.shields.io/badge/llama.cpp-CPU%20%7C%20Vulkan%20%7C%20ROCm-blue)
-![API](https://img.shields.io/badge/API-OpenAI--compatible-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Ubuntu](https://img.shields.io/badge/Linux-Ubuntu-E95420)
+![Debian](https://img.shields.io/badge/Linux-Debian-A81D33)
+![Fedora](https://img.shields.io/badge/Linux-Fedora-51A2DA)
+![RHEL](https://img.shields.io/badge/Linux-RHEL-EE0000)
+![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25)
+![llama.cpp](https://img.shields.io/badge/Engine-llama.cpp-6C5CE7)
+![CPU](https://img.shields.io/badge/Backend-CPU-64748B)
+![Vulkan](https://img.shields.io/badge/Backend-Vulkan-AC162C)
+![ROCm](https://img.shields.io/badge/Backend-ROCm-ED1C24)
+![OpenVINO](https://img.shields.io/badge/Backend-OpenVINO-0071C5)
+![SYCL](https://img.shields.io/badge/Backend-SYCL-7C3AED)
+![API](https://img.shields.io/badge/API-OpenAI--compatible-111827)
+![Service](https://img.shields.io/badge/Service-systemd%20user-F59E0B)
+![Installer](https://img.shields.io/badge/Install-custom%20path-EC4899)
+![License](https://img.shields.io/badge/License-MIT-10B981)
 </div>
 
 <div align="center">
