@@ -2,18 +2,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_AI_DIR="$HOME/ai"
-DEFAULT_AI_DIR_DISPLAY="~/ai"
+
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
 MODELS_DIR=""
-LLAMA_CPP_VERSION="b9672"
-LLAMA_SWAP_VERSION="v226"
-LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-vulkan}"
-LLAMA_CPP_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${LLAMA_CPP_VERSION}"
+LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
 LLAMA_CPP_ASSET_RE=""
 LLAMA_CPP_URL=""
-LLAMA_SWAP_URL="https://github.com/mostlygeek/llama-swap/releases/download/v226/llama-swap_226_linux_amd64.tar.gz"
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -42,14 +40,14 @@ select_ai_dir() {
     AI_DIR="$(expand_path "$AI_DIR")"
     log "Using LOCALAI_DIR: $AI_DIR"
   elif [ -t 0 ]; then
-    printf 'LocalAI install directory [%s]: ' "$DEFAULT_AI_DIR_DISPLAY"
+    printf 'LocalAI install directory [%s]: ' "$LOCALAI_DEFAULT_DIR_DISPLAY"
     read -r answer
   else
     answer=""
-    log "No interactive terminal detected. Using default install directory: $DEFAULT_AI_DIR_DISPLAY"
+    log "No interactive terminal detected. Using default install directory: $LOCALAI_DEFAULT_DIR_DISPLAY"
   fi
 
-  AI_DIR="${AI_DIR:-$(expand_path "${answer:-$DEFAULT_AI_DIR}")}"
+  AI_DIR="${AI_DIR:-$(expand_path "${answer:-$LOCALAI_DEFAULT_DIR}")}"
   case "$AI_DIR" in
     /*) ;;
     *) fail "install directory must be an absolute path or start with ~" ;;
@@ -66,38 +64,39 @@ install_system_dependencies() {
 
   if command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y ca-certificates curl iproute2 jq tar
+    read -r -a packages <<< "$LOCALAI_APT_PACKAGES"
+    sudo apt-get install -y "${packages[@]}"
   elif command -v dnf >/dev/null 2>&1; then
-    packages=(ca-certificates curl iproute jq tar vulkan-loader)
+    read -r -a packages <<< "$LOCALAI_DNF_PACKAGES"
     sudo dnf install -y "${packages[@]}"
   elif command -v yum >/dev/null 2>&1; then
-    packages=(ca-certificates curl iproute jq tar vulkan-loader)
+    read -r -a packages <<< "$LOCALAI_YUM_PACKAGES"
     sudo yum install -y "${packages[@]}"
   else
-    fail "supported package manager not found. Install ca-certificates, curl, iproute/iproute2, jq, tar, and vulkan-loader, then rerun this installer."
+    fail "supported package manager not found. Install required packages listed in localai.conf, then rerun this installer."
   fi
 }
 
 select_llama_cpp_asset_regex() {
   case "$LLAMA_CPP_BACKEND" in
     cpu)
-      LLAMA_CPP_ASSET_RE="ubuntu-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
       ;;
     vulkan)
-      LLAMA_CPP_ASSET_RE="ubuntu-vulkan-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_VULKAN_ASSET_RE"
       ;;
     rocm)
-      LLAMA_CPP_ASSET_RE="ubuntu-rocm-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_ROCM_ASSET_RE"
       ;;
     openvino)
-      LLAMA_CPP_ASSET_RE="ubuntu-openvino-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_OPENVINO_ASSET_RE"
       ;;
     sycl-fp16)
-      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp16-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP16_ASSET_RE"
       ;;
     sycl-fp32|sycl)
       LLAMA_CPP_BACKEND="sycl-fp32"
-      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp32-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
       ;;
     *)
       fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
@@ -109,7 +108,7 @@ resolve_llama_cpp_url() {
   local json
 
   log "Finding llama.cpp $LLAMA_CPP_VERSION asset for backend: $LLAMA_CPP_BACKEND"
-  json=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_API") ||
+  json=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_RELEASE_API") ||
     fail "failed to fetch llama.cpp release metadata"
   LLAMA_CPP_URL=$(jq -er \
     --arg pattern "$LLAMA_CPP_ASSET_RE" \
@@ -150,8 +149,8 @@ cleanup_bin_artifacts() {
 [ "$(uname -m)" = "x86_64" ] || fail "this installer currently supports x86_64 Linux only"
 
 select_ai_dir
-BIN_DIR="$AI_DIR/bin"
-MODELS_DIR="$AI_DIR/models"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 select_llama_cpp_asset_regex
 
 mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
@@ -184,7 +183,7 @@ curl -4 -fL --retry 3 --retry-delay 2 \
   "$LLAMA_SWAP_URL" \
   || fail "failed to download llama-swap"
 
-if [ -x "$AI_DIR/stop.sh" ] && [ -f "$AI_DIR/llama-swap.pid" ]; then
+if [ -x "$AI_DIR/stop.sh" ] && [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
   log "Stopping the existing LocalAI service"
   "$AI_DIR/stop.sh"
 fi
@@ -216,7 +215,7 @@ exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
 
 install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
-echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/llama-cpp-backend"
+echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/$LOCALAI_BACKEND_FILE"
 verify_llama_server
 cleanup_bin_artifacts
 
@@ -236,18 +235,18 @@ LLAMA_SWAP_REAL=$(
 )
 [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the archive"
 
-sudo install -m755 "$LLAMA_SWAP_REAL" /usr/local/bin/llama-swap
+sudo install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
 
 ###############################################################################
 # SELECT API PORT
 ###############################################################################
 
-if [ ! -f "$AI_DIR/port" ]; then
-  PORT=11435
+if [ ! -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
+  PORT="$LOCALAI_DEFAULT_PORT"
   while ss -ltn | awk '{print $4}' | grep -q ":${PORT}$"; do
     PORT=$((PORT + 1))
   done
-  echo "$PORT" > "$AI_DIR/port"
+  echo "$PORT" > "$AI_DIR/$LOCALAI_PORT_FILE"
 fi
 
 ###############################################################################
@@ -256,9 +255,9 @@ fi
 
 log "Installing helper scripts and systemd service"
 
-mkdir -p "$HOME/.config/systemd/user"
+mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
 
-cat > "$HOME/.config/systemd/user/localai.service" <<EOF
+cat > "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" <<EOF
 [Unit]
 Description=LocalAI Server
 After=network-online.target
@@ -279,6 +278,7 @@ install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
 install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
 install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$AI_DIR/update-local-ai.sh"
 install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$AI_DIR/uninstall-local-ai.sh"
+install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
 
 if ! systemctl --user daemon-reload; then
   echo "Warning: could not reload the systemd user manager." >&2
@@ -331,7 +331,7 @@ echo "  Uninstall:"
 echo "    $AI_DIR/uninstall-local-ai.sh"
 echo
 echo "API endpoint:"
-echo "  http://localhost:$(cat "$AI_DIR/port")"
+echo "  http://localhost:$(cat "$AI_DIR/$LOCALAI_PORT_FILE")"
 echo
 echo "Models directory:"
 echo "  $MODELS_DIR"

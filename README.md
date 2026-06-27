@@ -115,7 +115,7 @@ The installer:
 
 1. Installs required system packages.
 2. Downloads the pinned llama.cpp b9672 backend archive and llama-swap v226.
-3. Creates `bin`, `models`, and the helper scripts inside the install directory.
+3. Creates `bin`, `models`, the shared `localai.conf`, and helper scripts inside the install directory.
 4. Selects an available port, beginning at `11435`.
 5. Creates a systemd user service that points to the selected install directory.
 
@@ -266,6 +266,18 @@ Direct-process logs are written to:
 ```
 
 ## Configuration
+
+Shared defaults live in:
+
+```text
+localai.conf          # source default
+~/ai/localai.conf     # installed copy
+```
+
+This file contains commented settings for install paths, service name, release
+versions, backend asset patterns, package lists, port, listen host, generated
+config filenames, logs, PID files, and llama.cpp runtime defaults. Environment
+variables still override the config for one command.
 
 `rebuild-config.sh` creates `config.yaml` from every `.gguf` file in the
 install directory's `models` folder. It runs automatically whenever the server

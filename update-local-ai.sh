@@ -2,14 +2,15 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
 AI_DIR=""
 BIN_DIR=""
-LLAMA_CPP_API="https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-LLAMA_SWAP_API="https://api.github.com/repos/mostlygeek/llama-swap/releases/latest"
 LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-}"
 LLAMA_CPP_ASSET_RE=""
 START_AFTER_UPDATE=1
-SERVICE_NAME="localai.service"
 
 if [ "${1:-}" = "--no-start" ]; then
   START_AFTER_UPDATE=0
@@ -42,7 +43,7 @@ resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    printf '%s\n' "$HOME/ai"
+    expand_path "$LOCALAI_DEFAULT_DIR"
   else
     printf '%s\n' "$SCRIPT_DIR"
   fi
@@ -50,32 +51,32 @@ resolve_ai_dir() {
 
 select_llama_cpp_asset_regex() {
   if [ -z "$LLAMA_CPP_BACKEND" ]; then
-    if [ -f "$AI_DIR/llama-cpp-backend" ]; then
-      LLAMA_CPP_BACKEND="$(<"$AI_DIR/llama-cpp-backend")"
+    if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
+      LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
     else
-      LLAMA_CPP_BACKEND="vulkan"
+      LLAMA_CPP_BACKEND="$LOCALAI_DEFAULT_BACKEND"
     fi
   fi
 
   case "$LLAMA_CPP_BACKEND" in
     cpu)
-      LLAMA_CPP_ASSET_RE="ubuntu-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
       ;;
     vulkan)
-      LLAMA_CPP_ASSET_RE="ubuntu-vulkan-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_VULKAN_ASSET_RE"
       ;;
     rocm)
-      LLAMA_CPP_ASSET_RE="ubuntu-rocm-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_ROCM_ASSET_RE"
       ;;
     openvino)
-      LLAMA_CPP_ASSET_RE="ubuntu-openvino-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_OPENVINO_ASSET_RE"
       ;;
     sycl-fp16)
-      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp16-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP16_ASSET_RE"
       ;;
     sycl-fp32|sycl)
       LLAMA_CPP_BACKEND="sycl-fp32"
-      LLAMA_CPP_ASSET_RE="ubuntu-sycl-fp32-x64\\.tar\\.gz$"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
       ;;
     *)
       fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
@@ -85,13 +86,13 @@ select_llama_cpp_asset_regex() {
 
 has_user_service() {
   command -v systemctl >/dev/null 2>&1 &&
-    systemctl --user cat "$SERVICE_NAME" >/dev/null 2>&1
+    systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
 }
 
 stop_localai() {
   if has_user_service; then
     log "Stopping LocalAI service"
-    systemctl --user stop "$SERVICE_NAME"
+    systemctl --user stop "$LOCALAI_SERVICE_NAME"
   elif [ -x "$AI_DIR/stop.sh" ]; then
     log "Stopping LocalAI"
     "$AI_DIR/stop.sh"
@@ -104,7 +105,7 @@ stop_localai() {
 start_localai() {
   if has_user_service; then
     log "Starting LocalAI service"
-    systemctl --user start "$SERVICE_NAME"
+    systemctl --user start "$LOCALAI_SERVICE_NAME"
   elif [ -x "$AI_DIR/start.sh" ]; then
     log "Starting LocalAI"
     "$AI_DIR/start.sh"
@@ -156,7 +157,7 @@ done
 [ "$(uname -m)" = "x86_64" ] || fail "this updater currently supports x86_64 Linux only"
 
 AI_DIR="$(resolve_ai_dir)"
-BIN_DIR="$AI_DIR/bin"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
 select_llama_cpp_asset_regex
 
 ###############################################################################
@@ -177,6 +178,9 @@ if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
       install -m755 "$SCRIPT_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
     fi
   done
+  if [ -f "$SCRIPT_DIR/localai.conf" ]; then
+    install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+  fi
 fi
 
 ###############################################################################
@@ -184,8 +188,8 @@ fi
 ###############################################################################
 
 log "Fetching release metadata"
-LLAMA_CPP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_API")
-LLAMA_SWAP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_SWAP_API")
+LLAMA_CPP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_LATEST_API")
+LLAMA_SWAP_JSON=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_SWAP_LATEST_API")
 
 LLAMA_CPP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_CPP_JSON")
 LLAMA_SWAP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")
@@ -194,7 +198,8 @@ LLAMA_CPP_URL=$(jq -er \
   '.assets[] | select(.name | test($pattern)) | .browser_download_url' \
   <<<"$LLAMA_CPP_JSON" | head -n1 || true)
 LLAMA_SWAP_URL=$(jq -er \
-  '.assets[] | select(.name | test("linux_amd64\\.tar\\.gz$")) | .browser_download_url' \
+  --arg pattern "$LLAMA_SWAP_ASSET_RE" \
+  '.assets[] | select(.name | test($pattern)) | .browser_download_url' \
   <<<"$LLAMA_SWAP_JSON" | head -n1 || true)
 
 [ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp asset found for backend: $LLAMA_CPP_BACKEND"
@@ -214,8 +219,8 @@ CURRENT_LLAMA_SWAP=$(
     head -n1 || true
 )
 CURRENT_LLAMA_CPP_BACKEND=""
-if [ -f "$AI_DIR/llama-cpp-backend" ]; then
-  CURRENT_LLAMA_CPP_BACKEND="$(<"$AI_DIR/llama-cpp-backend")"
+if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
+  CURRENT_LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
 fi
 
 printf 'llama.cpp:  installed=%s latest=%s backend=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG" "$LLAMA_CPP_BACKEND"
@@ -277,7 +282,7 @@ export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
 exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
   install -m755 "$TMP_DIR/llama-server" "$BIN_DIR/llama-server"
-  echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/llama-cpp-backend"
+  echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/$LOCALAI_BACKEND_FILE"
   verify_llama_server
 fi
 
@@ -299,7 +304,7 @@ if ((NEED_SWAP)); then
 
   LLAMA_SWAP_REAL=$(find "$TMP_DIR/llama-swap" -type f -name llama-swap | head -n1)
   [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the downloaded archive"
-  sudo install -m755 "$LLAMA_SWAP_REAL" /usr/local/bin/llama-swap
+  sudo install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
 fi
 
 ###############################################################################

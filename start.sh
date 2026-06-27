@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
 expand_path() {
   local value="$1"
   if [[ "$value" == "~" ]]; then
@@ -18,33 +21,32 @@ resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    printf '%s\n' "$HOME/ai"
+    expand_path "$LOCALAI_DEFAULT_DIR"
   else
     printf '%s\n' "$SCRIPT_DIR"
   fi
 }
 
 AI_DIR="$(resolve_ai_dir)"
-PORT_FILE="$AI_DIR/port"
-PID_FILE="$AI_DIR/llama-swap.pid"
-LOG_FILE="$AI_DIR/logs/llama-swap.log"
-CONFIG_FILE="$AI_DIR/config.yaml"
-LLAMA_SWAP_BIN="${LLAMA_SWAP_BIN:-$(command -v llama-swap || true)}"
+PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
+PID_FILE="$AI_DIR/$LOCALAI_PID_FILE"
+LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
+CONFIG_FILE="$AI_DIR/$LOCALAI_CONFIG_FILE"
 
-mkdir -p "$AI_DIR/logs"
+mkdir -p "$AI_DIR/$LOCALAI_LOGS_SUBDIR"
 
 if [ -z "$LLAMA_SWAP_BIN" ]; then
   echo "Error: llama-swap is not installed or is not in PATH." >&2
   exit 1
 fi
 
-if [ ! -x "$AI_DIR/bin/llama-server" ]; then
-  echo "Error: $AI_DIR/bin/llama-server is missing or not executable." >&2
+if [ ! -x "$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server" ]; then
+  echo "Error: $AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server is missing or not executable." >&2
   exit 1
 fi
 
 if [ ! -f "$PORT_FILE" ]; then
-  echo "11435" > "$PORT_FILE"
+  echo "$LOCALAI_DEFAULT_PORT" > "$PORT_FILE"
 fi
 
 PORT=$(<"$PORT_FILE")
@@ -68,7 +70,7 @@ fi
 "$AI_DIR/rebuild-config.sh"
 
 nohup "$LLAMA_SWAP_BIN" \
-  --listen "127.0.0.1:${PORT}" \
+  --listen "${LOCALAI_LISTEN_HOST}:${PORT}" \
   --config "$CONFIG_FILE" \
   > "$LOG_FILE" 2>&1 &
 
@@ -82,4 +84,4 @@ if ! kill -0 "$PID" 2>/dev/null; then
   exit 1
 fi
 
-echo "LocalAI started at http://127.0.0.1:${PORT} (PID $PID)"
+echo "LocalAI started at http://${LOCALAI_LISTEN_HOST}:${PORT} (PID $PID)"

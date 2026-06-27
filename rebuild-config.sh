@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
 expand_path() {
   local value="$1"
   if [[ "$value" == "~" ]]; then
@@ -18,21 +21,21 @@ resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    printf '%s\n' "$HOME/ai"
+    expand_path "$LOCALAI_DEFAULT_DIR"
   else
     printf '%s\n' "$SCRIPT_DIR"
   fi
 }
 
 AI_DIR="$(resolve_ai_dir)"
-CONFIG="$AI_DIR/config.yaml"
-MODELS_DIR="$AI_DIR/models"
-BIN="$AI_DIR/bin/llama-server"
-CTX_SIZE="${CTX_SIZE:-16384}"
-N_GPU_LAYERS="${N_GPU_LAYERS:-8}"
-THREADS="${THREADS:-6}"
-CACHE_TYPE_K="${CACHE_TYPE_K:-q4_0}"
-CACHE_TYPE_V="${CACHE_TYPE_V:-q4_0}"
+CONFIG="$AI_DIR/$LOCALAI_CONFIG_FILE"
+MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
+BIN="$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server"
+CTX_SIZE="${CTX_SIZE:-$LOCALAI_CTX_SIZE}"
+N_GPU_LAYERS="${N_GPU_LAYERS:-$LOCALAI_N_GPU_LAYERS}"
+THREADS="${THREADS:-$LOCALAI_THREADS}"
+CACHE_TYPE_K="${CACHE_TYPE_K:-$LOCALAI_CACHE_TYPE_K}"
+CACHE_TYPE_V="${CACHE_TYPE_V:-$LOCALAI_CACHE_TYPE_V}"
 
 if ! [[ "$CTX_SIZE" =~ ^[0-9]+$ ]] || ((CTX_SIZE < 1)); then
   echo "Error: CTX_SIZE must be a positive integer." >&2
@@ -52,8 +55,8 @@ fi
 mkdir -p "$MODELS_DIR"
 
 cat > "$CONFIG" <<CFG
-healthCheckTimeout: 300
-globalTTL: 900
+healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
+globalTTL: $LOCALAI_GLOBAL_TTL
 
 models:
 CFG
@@ -80,7 +83,7 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
   cat >> "$CONFIG" <<MODELCFG
 
   "$NAME":
-    proxy: http://127.0.0.1:\${PORT}
+    proxy: http://$LOCALAI_LISTEN_HOST:\${PORT}
     cmd: >
       "$BIN"
       --port \${PORT}

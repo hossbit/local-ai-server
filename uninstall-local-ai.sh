@@ -2,11 +2,14 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
 AI_DIR=""
 BIN_DIR=""
 MODELS_DIR=""
-SERVICE_NAME="localai.service"
-SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME"
+SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
 REMOVE_MODELS=0
 REMOVE_LLAMA_SWAP=0
 FORCE=0
@@ -26,7 +29,7 @@ resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    printf '%s\n' "$HOME/ai"
+    expand_path "$LOCALAI_DEFAULT_DIR"
   else
     printf '%s\n' "$SCRIPT_DIR"
   fi
@@ -40,7 +43,7 @@ Uninstalls the LocalAI service and helper files created by install-local-ai.sh.
 
 Options:
   --remove-models       Also delete $MODELS_DIR
-  --remove-llama-swap   Also delete /usr/local/bin/llama-swap
+  --remove-llama-swap   Also delete $LLAMA_SWAP_INSTALL_PATH
   --force               Do not prompt before deleting files
   -h, --help            Show this help
 EOF
@@ -59,7 +62,7 @@ has_systemctl_user() {
 }
 
 has_user_service() {
-  has_systemctl_user && systemctl --user cat "$SERVICE_NAME" >/dev/null 2>&1
+  has_systemctl_user && systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
 }
 
 confirm() {
@@ -86,8 +89,8 @@ path_exists() {
 }
 
 AI_DIR="$(resolve_ai_dir)"
-BIN_DIR="$AI_DIR/bin"
-MODELS_DIR="$AI_DIR/models"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -123,11 +126,12 @@ for TARGET in \
   "$AI_DIR/rebuild-config.sh" \
   "$AI_DIR/update-local-ai.sh" \
   "$AI_DIR/uninstall-local-ai.sh" \
-  "$AI_DIR/llama-cpp-backend" \
-  "$AI_DIR/config.yaml" \
-  "$AI_DIR/port" \
-  "$AI_DIR/logs" \
-  "$AI_DIR/llama-swap.pid"
+  "$AI_DIR/localai.conf" \
+  "$AI_DIR/$LOCALAI_BACKEND_FILE" \
+  "$AI_DIR/$LOCALAI_CONFIG_FILE" \
+  "$AI_DIR/$LOCALAI_PORT_FILE" \
+  "$AI_DIR/$LOCALAI_LOGS_SUBDIR" \
+  "$AI_DIR/$LOCALAI_PID_FILE"
 do
   if path_exists "$TARGET"; then
     REMOVE_TARGETS+=("$TARGET")
@@ -143,11 +147,11 @@ elif path_exists "$MODELS_DIR"; then
 fi
 
 if [ "$REMOVE_LLAMA_SWAP" -eq 1 ]; then
-  if path_exists /usr/local/bin/llama-swap; then
-    EXTRA_REMOVE_TARGETS+=("/usr/local/bin/llama-swap")
+  if path_exists "$LLAMA_SWAP_INSTALL_PATH"; then
+    EXTRA_REMOVE_TARGETS+=("$LLAMA_SWAP_INSTALL_PATH")
   fi
-elif path_exists /usr/local/bin/llama-swap; then
-  KEEP_TARGETS+=("/usr/local/bin/llama-swap")
+elif path_exists "$LLAMA_SWAP_INSTALL_PATH"; then
+  KEEP_TARGETS+=("$LLAMA_SWAP_INSTALL_PATH")
 fi
 
 if [ "$HAS_USER_SERVICE" -eq 0 ] && [ "${#REMOVE_TARGETS[@]}" -eq 0 ] && [ "${#EXTRA_REMOVE_TARGETS[@]}" -eq 0 ]; then
@@ -168,7 +172,7 @@ echo
 if [ "$HAS_USER_SERVICE" -eq 1 ] || [ "${#REMOVE_TARGETS[@]}" -gt 0 ]; then
   echo "Will remove:"
   if [ "$HAS_USER_SERVICE" -eq 1 ]; then
-    echo "  systemd user service $SERVICE_NAME"
+    echo "  systemd user service $LOCALAI_SERVICE_NAME"
   fi
   for TARGET in "${REMOVE_TARGETS[@]}"; do
     echo "  $TARGET"
@@ -207,8 +211,8 @@ fi
 
 if has_user_service; then
   log "Stopping and disabling systemd user service"
-  systemctl --user stop "$SERVICE_NAME" || warn "could not stop $SERVICE_NAME"
-  systemctl --user disable "$SERVICE_NAME" || warn "could not disable $SERVICE_NAME"
+  systemctl --user stop "$LOCALAI_SERVICE_NAME" || warn "could not stop $LOCALAI_SERVICE_NAME"
+  systemctl --user disable "$LOCALAI_SERVICE_NAME" || warn "could not disable $LOCALAI_SERVICE_NAME"
 elif [ -x "$AI_DIR/stop.sh" ]; then
   log "Stopping LocalAI with helper script"
   "$AI_DIR/stop.sh" || warn "could not stop LocalAI with $AI_DIR/stop.sh"
@@ -221,7 +225,7 @@ fi
 
 if has_systemctl_user; then
   systemctl --user daemon-reload || warn "could not reload the systemd user manager"
-  systemctl --user reset-failed "$SERVICE_NAME" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1 || true
 fi
 
 ###############################################################################
@@ -236,11 +240,12 @@ remove_if_exists "$AI_DIR/stop.sh"
 remove_if_exists "$AI_DIR/rebuild-config.sh"
 remove_if_exists "$AI_DIR/update-local-ai.sh"
 remove_if_exists "$AI_DIR/uninstall-local-ai.sh"
-remove_if_exists "$AI_DIR/llama-cpp-backend"
-remove_if_exists "$AI_DIR/config.yaml"
-remove_if_exists "$AI_DIR/port"
-remove_if_exists "$AI_DIR/logs"
-remove_if_exists "$AI_DIR/llama-swap.pid"
+remove_if_exists "$AI_DIR/localai.conf"
+remove_if_exists "$AI_DIR/$LOCALAI_BACKEND_FILE"
+remove_if_exists "$AI_DIR/$LOCALAI_CONFIG_FILE"
+remove_if_exists "$AI_DIR/$LOCALAI_PORT_FILE"
+remove_if_exists "$AI_DIR/$LOCALAI_LOGS_SUBDIR"
+remove_if_exists "$AI_DIR/$LOCALAI_PID_FILE"
 
 if [ "$REMOVE_MODELS" -eq 1 ]; then
   remove_if_exists "$MODELS_DIR"
@@ -255,9 +260,9 @@ fi
 ###############################################################################
 
 if [ "$REMOVE_LLAMA_SWAP" -eq 1 ]; then
-  if [ -e /usr/local/bin/llama-swap ] || [ -L /usr/local/bin/llama-swap ]; then
-    log "Removing /usr/local/bin/llama-swap"
-    sudo rm -f -- /usr/local/bin/llama-swap
+  if [ -e "$LLAMA_SWAP_INSTALL_PATH" ] || [ -L "$LLAMA_SWAP_INSTALL_PATH" ]; then
+    log "Removing $LLAMA_SWAP_INSTALL_PATH"
+    sudo rm -f -- "$LLAMA_SWAP_INSTALL_PATH"
   fi
 fi
 
