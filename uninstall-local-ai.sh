@@ -37,12 +37,13 @@ resolve_ai_dir() {
 
 usage() {
   cat <<EOF
-Usage: $0 [--remove-models] [--remove-llama-swap] [--force]
+Usage: $0 [--dir PATH] [--remove-models] [--remove-llama-swap] [--force]
 
 Uninstalls the LocalAI service and helper files created by install-local-ai.sh.
 
 Options:
-  --remove-models       Also delete $MODELS_DIR
+  --dir PATH           Uninstall LocalAI from PATH. Same as LOCALAI_DIR=PATH.
+  --remove-models       Also delete the models directory.
   --remove-llama-swap   Also delete $LLAMA_SWAP_INSTALL_PATH
   --force               Do not prompt before deleting files
   -h, --help            Show this help
@@ -88,15 +89,32 @@ path_exists() {
   [ -e "$1" ] || [ -L "$1" ]
 }
 
-AI_DIR="$(resolve_ai_dir)"
-BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
-MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
-
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --remove-models) REMOVE_MODELS=1 ;;
-    --remove-llama-swap) REMOVE_LLAMA_SWAP=1 ;;
-    --force) FORCE=1 ;;
+    --dir)
+      [ "$#" -ge 2 ] || {
+        usage >&2
+        exit 2
+      }
+      LOCALAI_DIR="$2"
+      shift 2
+      ;;
+    --dir=*)
+      LOCALAI_DIR="${1#--dir=}"
+      shift
+      ;;
+    --remove-models)
+      REMOVE_MODELS=1
+      shift
+      ;;
+    --remove-llama-swap)
+      REMOVE_LLAMA_SWAP=1
+      shift
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -106,8 +124,11 @@ while [ "$#" -gt 0 ]; do
       exit 2
       ;;
   esac
-  shift
 done
+
+AI_DIR="$(resolve_ai_dir)"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 
 REMOVE_TARGETS=()
 KEEP_TARGETS=()
@@ -167,6 +188,7 @@ if [ "$HAS_USER_SERVICE" -eq 0 ] && [ "${#REMOVE_TARGETS[@]}" -eq 0 ] && [ "${#E
 fi
 
 echo "This will uninstall LocalAI for the current user."
+echo "Resolved LocalAI directory: $AI_DIR"
 echo
 
 if [ "$HAS_USER_SERVICE" -eq 1 ] || [ "${#REMOVE_TARGETS[@]}" -gt 0 ]; then

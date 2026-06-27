@@ -95,6 +95,12 @@ Press Enter to use the default `~/ai`. To choose the path without a prompt, set
 LOCALAI_DIR=~/my-ai ./install-local-ai.sh
 ```
 
+Or pass `--dir`:
+
+```bash
+./install-local-ai.sh --dir ~/my-ai
+```
+
 Choose a llama.cpp backend with `LLAMA_CPP_BACKEND`. The default is `vulkan`.
 
 ```bash
@@ -364,7 +370,7 @@ Remove the user service and installed helper files:
 For a custom install directory:
 
 ```bash
-~/my-ai/uninstall-local-ai.sh
+~/my-ai/uninstall-local-ai.sh --dir ~/my-ai
 ```
 
 By default the uninstaller keeps the install directory's `models` folder. To

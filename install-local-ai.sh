@@ -22,6 +22,18 @@ fail() {
   exit 1
 }
 
+usage() {
+  cat <<EOF
+Usage: $0 [--dir PATH]
+
+Installs LocalAI into the selected directory.
+
+Options:
+  --dir PATH     Install LocalAI into PATH. Same as LOCALAI_DIR=PATH.
+  -h, --help     Show this help
+EOF
+}
+
 expand_path() {
   local value="$1"
   if [[ "$value" == "~" ]]; then
@@ -33,12 +45,36 @@ expand_path() {
   fi
 }
 
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dir)
+        [ "$#" -ge 2 ] || fail "missing path after --dir"
+        AI_DIR="$2"
+        shift 2
+        ;;
+      --dir=*)
+        AI_DIR="${1#--dir=}"
+        shift
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
 select_ai_dir() {
   local answer
 
   if [ -n "$AI_DIR" ]; then
     AI_DIR="$(expand_path "$AI_DIR")"
-    log "Using LOCALAI_DIR: $AI_DIR"
+    log "Using LocalAI install directory: $AI_DIR"
   elif [ -t 0 ]; then
     printf 'LocalAI install directory [%s]: ' "$LOCALAI_DEFAULT_DIR_DISPLAY"
     read -r answer
@@ -148,6 +184,7 @@ cleanup_bin_artifacts() {
 
 [ "$(uname -m)" = "x86_64" ] || fail "this installer currently supports x86_64 Linux only"
 
+parse_args "$@"
 select_ai_dir
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
@@ -332,6 +369,11 @@ echo "    $AI_DIR/uninstall-local-ai.sh"
 echo
 echo "API endpoint:"
 echo "  http://localhost:$(cat "$AI_DIR/$LOCALAI_PORT_FILE")"
+echo
+echo "Service file:"
+echo "  $LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
+echo "  ExecStart=$AI_DIR/start.sh"
+echo "  ExecStop=$AI_DIR/stop.sh"
 echo
 echo "Models directory:"
 echo "  $MODELS_DIR"
