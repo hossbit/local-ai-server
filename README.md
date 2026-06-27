@@ -119,8 +119,9 @@ The installer:
 4. Selects an available port, beginning at `11435`.
 5. Creates a systemd user service that points to the selected install directory.
 
-The installer does not start the server automatically. Add at least one model,
-then start it with:
+The installer does not start the server automatically. If no `.gguf` files are
+found in the models directory, it prints a warning because chat requests need a
+model. Add at least one model, then start it with:
 
 ```bash
 systemctl --user start localai

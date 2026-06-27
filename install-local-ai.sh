@@ -341,4 +341,12 @@ echo "Current versions:"
 echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
 llama-swap --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo
+if ! find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
+  echo "No GGUF models found in:"
+  echo "  $MODELS_DIR"
+  echo
+  echo "LocalAI is installed, but chat requests will not work until you add a model."
+  echo "Download or copy a .gguf model into the models directory, then start LocalAI."
+  echo
+fi
 echo "============================================================"
