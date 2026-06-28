@@ -1,4 +1,4 @@
-# Local AI Server
+# Local AI Server for Linux
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-hero.png" alt="LocalAI local LLM server" width="900">
@@ -76,8 +76,8 @@ file names, even when they can run on other compatible Linux distributions.
 ## Install
 
 ```bash
-git clone https://github.com/hossbit/localai.git
-cd localai
+git clone https://github.com/hossbit/local-ai-server.git
+cd local-ai-server
 chmod +x ./*.sh
 ./install-local-ai.sh
 ```
