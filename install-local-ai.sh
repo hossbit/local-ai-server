@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
 MODELS_DIR=""
+LOCALAI_CLI_PATH=""
+LOCALAI_CLI_LINK=""
 LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
 LLAMA_CPP_ASSET_RE=""
 LLAMA_CPP_URL=""
@@ -188,6 +190,8 @@ parse_args "$@"
 select_ai_dir
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
+LOCALAI_CLI_PATH="$AI_DIR/$LOCALAI_CLI_NAME"
+LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 select_llama_cpp_asset_regex
 
 mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
@@ -293,6 +297,7 @@ fi
 log "Installing helper scripts and systemd service"
 
 mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
+mkdir -p "$LOCALAI_USER_BIN_DIR"
 
 cat > "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" <<EOF
 [Unit]
@@ -315,7 +320,14 @@ install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
 install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
 install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$AI_DIR/update-local-ai.sh"
 install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$AI_DIR/uninstall-local-ai.sh"
+install -m755 "$SCRIPT_DIR/localai" "$LOCALAI_CLI_PATH"
 install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+
+cat > "$LOCALAI_CLI_LINK" <<EOF
+#!/usr/bin/env bash
+exec "$LOCALAI_CLI_PATH" "\$@"
+EOF
+chmod 755 "$LOCALAI_CLI_LINK"
 
 if ! systemctl --user daemon-reload; then
   echo "Warning: could not reload the systemd user manager." >&2
@@ -327,22 +339,34 @@ echo "============================================================"
 echo " LocalAI installation completed"
 echo "============================================================"
 echo
-echo "Service commands:"
+echo "LocalAI commands:"
 echo
 echo "  Start service:"
-echo "    systemctl --user start localai"
+echo "    localai start"
 echo
 echo "  Stop service:"
-echo "    systemctl --user stop localai"
+echo "    localai stop"
 echo
 echo "  Restart service:"
-echo "    systemctl --user restart localai"
+echo "    localai restart"
 echo
 echo "  Check status:"
-echo "    systemctl --user status localai"
+echo "    localai status"
 echo
 echo "  View logs:"
-echo "    journalctl --user -u localai -f"
+echo "    localai logs"
+echo
+echo "  List models:"
+echo "    localai models"
+echo
+echo "  Update components:"
+echo "    localai update"
+echo
+echo "  Show versions:"
+echo "    localai version"
+echo
+echo "  Uninstall:"
+echo "    localai uninstall"
 echo
 echo "  Enable auto-start on login:"
 echo "    systemctl --user enable localai"
@@ -361,12 +385,6 @@ echo
 echo "  Rebuild config:"
 echo "    $AI_DIR/rebuild-config.sh"
 echo
-echo "  Update components:"
-echo "    $AI_DIR/update-local-ai.sh"
-echo
-echo "  Uninstall:"
-echo "    $AI_DIR/uninstall-local-ai.sh"
-echo
 echo "API endpoint:"
 echo "  http://localhost:$(cat "$AI_DIR/$LOCALAI_PORT_FILE")"
 echo
@@ -378,6 +396,17 @@ echo
 echo "Models directory:"
 echo "  $MODELS_DIR"
 echo
+echo "CLI command:"
+echo "  $LOCALAI_CLI_LINK"
+echo
+case ":$PATH:" in
+  *":$LOCALAI_USER_BIN_DIR:"*) ;;
+  *)
+    echo "Note: $LOCALAI_USER_BIN_DIR is not in your PATH."
+    echo "Add it to your shell profile to run localai from anywhere."
+    echo
+    ;;
+esac
 echo "Current versions:"
 "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo "llama.cpp backend: $LLAMA_CPP_BACKEND"

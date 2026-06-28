@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=localai.conf
+. "$SCRIPT_DIR/localai.conf"
+
+expand_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "${value:0:2}" == "~/" ]]; then
+    printf '%s/%s\n' "$HOME" "${value:2}"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+resolve_ai_dir() {
+  if [ -n "${LOCALAI_DIR:-}" ]; then
+    expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
+    expand_path "$LOCALAI_DEFAULT_DIR"
+  else
+    printf '%s\n' "$SCRIPT_DIR"
+  fi
+}
+
+AI_DIR="$(resolve_ai_dir)"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
+LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
+PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
+SERVICE_UNIT="${LOCALAI_SERVICE_NAME%.service}"
+
+usage() {
+  cat <<EOF
+Usage: localai COMMAND
+
+Commands:
+  start       Start the LocalAI service
+  stop        Stop the LocalAI service
+  restart     Restart the LocalAI service
+  status      Show service status
+  logs        Follow service logs
+  models      List installed GGUF models
+  update      Update llama.cpp, llama-swap, and helper scripts
+  version     Show LocalAI and component versions
+  uninstall   Uninstall LocalAI
+  help        Show this help
+EOF
+}
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+has_user_service() {
+  command -v systemctl >/dev/null 2>&1 &&
+    systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
+}
+
+service_cmd() {
+  local action="$1"
+
+  if has_user_service; then
+    systemctl --user "$action" "$SERVICE_UNIT"
+    return
+  fi
+
+  case "$action" in
+    start)
+      [ -x "$AI_DIR/start.sh" ] || fail "missing helper: $AI_DIR/start.sh"
+      "$AI_DIR/start.sh"
+      ;;
+    stop)
+      [ -x "$AI_DIR/stop.sh" ] || fail "missing helper: $AI_DIR/stop.sh"
+      "$AI_DIR/stop.sh"
+      ;;
+    restart)
+      service_cmd stop
+      service_cmd start
+      ;;
+    status)
+      if [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
+        local pid
+        pid="$(<"$AI_DIR/$LOCALAI_PID_FILE")"
+        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+          echo "LocalAI is running (PID $pid)."
+        else
+          echo "LocalAI is not running; stale PID file exists at $AI_DIR/$LOCALAI_PID_FILE."
+        fi
+      else
+        echo "LocalAI is not running."
+      fi
+      [ -f "$PORT_FILE" ] && echo "API: http://${LOCALAI_LISTEN_HOST}:$(<"$PORT_FILE")"
+      ;;
+    *)
+      fail "unsupported service action: $action"
+      ;;
+  esac
+}
+
+logs_cmd() {
+  if has_user_service; then
+    journalctl --user -u "$SERVICE_UNIT" -f
+    return
+  fi
+
+  mkdir -p "$(dirname "$LOG_FILE")"
+  touch "$LOG_FILE"
+  tail -f "$LOG_FILE"
+}
+
+models_cmd() {
+  if [ ! -d "$MODELS_DIR" ]; then
+    echo "Models directory does not exist: $MODELS_DIR"
+    return 0
+  fi
+
+  if ! find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
+    echo "No GGUF models found in $MODELS_DIR"
+    return 0
+  fi
+
+  find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -printf '%f\n' | sort
+}
+
+update_cmd() {
+  local updater="$AI_DIR/update-local-ai.sh"
+  [ -x "$updater" ] || updater="$SCRIPT_DIR/update-local-ai.sh"
+  [ -x "$updater" ] || fail "missing updater: $AI_DIR/update-local-ai.sh"
+  "$updater" "$@"
+}
+
+version_cmd() {
+  echo "LocalAI: $LOCALAI_VERSION"
+  echo "Install directory: $AI_DIR"
+
+  if [ -x "$BIN_DIR/llama-server" ]; then
+    "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print "llama.cpp: " $0; exit}'
+  else
+    echo "llama.cpp: not installed"
+  fi
+
+  if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
+    echo "llama.cpp backend: $(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
+  fi
+
+  if command -v llama-swap >/dev/null 2>&1; then
+    llama-swap --version 2>&1 | awk 'NR == 1 {print "llama-swap: " $0; exit}'
+  else
+    echo "llama-swap: not installed"
+  fi
+}
+
+uninstall_cmd() {
+  local uninstaller="$AI_DIR/uninstall-local-ai.sh"
+  [ -x "$uninstaller" ] || uninstaller="$SCRIPT_DIR/uninstall-local-ai.sh"
+  [ -x "$uninstaller" ] || fail "missing uninstaller: $AI_DIR/uninstall-local-ai.sh"
+  "$uninstaller" "$@"
+}
+
+COMMAND="${1:-help}"
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+
+case "$COMMAND" in
+  start|stop|restart|status)
+    service_cmd "$COMMAND"
+    ;;
+  logs)
+    logs_cmd
+    ;;
+  models)
+    models_cmd
+    ;;
+  update)
+    update_cmd "$@"
+    ;;
+  version)
+    version_cmd
+    ;;
+  uninstall)
+    uninstall_cmd "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -43,7 +43,7 @@ the configured install directory, which defaults to `~/ai/models`.
 - Automatic discovery of `.gguf` model files
 - On-demand model loading and switching through llama-swap
 - A systemd user service
-- Update, start, stop, and configuration helper scripts
+- A `localai` command for service, model, update, and uninstall tasks
 
 ```text
 OpenAI-compatible client
@@ -81,6 +81,9 @@ cd local-ai-server
 chmod +x ./*.sh
 ./install-local-ai.sh
 ```
+
+The installer creates `~/.local/bin/localai`. Make sure `~/.local/bin` is in
+your shell `PATH` so the command is available from any directory.
 
 The installer asks where to install LocalAI:
 
@@ -121,16 +124,16 @@ The installer:
 
 1. Installs required system packages.
 2. Downloads the pinned llama.cpp b9672 backend archive and llama-swap v226.
-3. Creates `bin`, `models`, the shared `localai.conf`, and helper scripts inside the install directory.
+3. Creates `bin`, `models`, the shared `localai.conf`, helper scripts, and the `localai` command inside the install directory.
 4. Selects an available port, beginning at `11435`.
-5. Creates a systemd user service that points to the selected install directory.
+5. Installs a `~/.local/bin/localai` launcher and creates a systemd user service that points to the selected install directory.
 
 The installer does not start the server automatically. If no `.gguf` files are
 found in the models directory, it prints a warning because chat requests need a
 model. Add at least one model, then start it with:
 
 ```bash
-systemctl --user start localai
+localai start
 ```
 
 To start it automatically when you log in:
@@ -247,24 +250,19 @@ usually require a non-empty value.
 ## Service and helper commands
 
 ```bash
-# Start, stop, restart, and inspect the systemd service
-systemctl --user start localai
-systemctl --user stop localai
-systemctl --user restart localai
-systemctl --user status localai
-
-# Follow service output
-journalctl --user -u localai -f
-
-# Run the helpers directly
-~/ai/start.sh
-~/ai/stop.sh
-~/ai/rebuild-config.sh
-~/ai/update-local-ai.sh
-~/ai/uninstall-local-ai.sh
+localai start
+localai stop
+localai restart
+localai status
+localai logs
+localai models
+localai update
+localai version
+localai uninstall
 ```
 
-Replace `~/ai` with your selected install directory if you chose a custom path.
+Set `LOCALAI_DIR` if you chose a custom install path and are running the
+command before installation has created the launcher.
 
 Direct-process logs are written to:
 
@@ -300,10 +298,8 @@ The defaults are:
 Override context size or GPU layers for one start:
 
 ```bash
-CTX_SIZE=8192 N_GPU_LAYERS=20 ~/ai/start.sh
+CTX_SIZE=8192 N_GPU_LAYERS=20 localai start
 ```
-
-For a custom install directory, run that directory's `start.sh` instead.
 
 If you use systemd and want persistent overrides, add them with:
 
@@ -328,22 +324,10 @@ systemctl --user restart localai
 
 ## Update
 
-From the cloned repository:
+Update installed components:
 
 ```bash
-./update-local-ai.sh
-```
-
-Or use the installed copy:
-
-```bash
-~/ai/update-local-ai.sh
-```
-
-For a custom install directory:
-
-```bash
-~/my-ai/update-local-ai.sh
+localai update
 ```
 
 The updater checks GitHub for the latest compatible releases, refreshes the
@@ -356,7 +340,7 @@ The updater keeps the installed llama.cpp backend. To switch backend during an
 update, pass `LLAMA_CPP_BACKEND`:
 
 ```bash
-LLAMA_CPP_BACKEND=cpu ~/ai/update-local-ai.sh
+LLAMA_CPP_BACKEND=cpu localai update
 ```
 
 ## Uninstall
@@ -364,26 +348,26 @@ LLAMA_CPP_BACKEND=cpu ~/ai/update-local-ai.sh
 Remove the user service and installed helper files:
 
 ```bash
-~/ai/uninstall-local-ai.sh
+localai uninstall
 ```
 
 For a custom install directory:
 
 ```bash
-~/my-ai/uninstall-local-ai.sh --dir ~/my-ai
+LOCALAI_DIR=~/my-ai localai uninstall
 ```
 
 By default the uninstaller keeps the install directory's `models` folder. To
 remove downloaded models too:
 
 ```bash
-~/ai/uninstall-local-ai.sh --remove-models
+localai uninstall --remove-models
 ```
 
 To also remove the shared `llama-swap` binary installed in `/usr/local/bin`:
 
 ```bash
-~/ai/uninstall-local-ai.sh --remove-llama-swap
+localai uninstall --remove-llama-swap
 ```
 
 ## Troubleshooting
@@ -392,7 +376,7 @@ Check the configured port and models:
 
 ```bash
 cat ~/ai/port
-ls -lh ~/ai/models
+localai models
 curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
 ```
 
@@ -408,7 +392,7 @@ Check logs:
 
 ```bash
 tail -n 100 ~/ai/logs/llama-swap.log
-journalctl --user -u localai -n 100 --no-pager
+localai logs
 ```
 
 If a Hugging Face download returns `401 Unauthorized`:

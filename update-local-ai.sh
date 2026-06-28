@@ -173,13 +173,21 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 ###############################################################################
 
 if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
-  for SCRIPT in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh; do
+  for SCRIPT in localai start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh; do
     if [ -f "$SCRIPT_DIR/$SCRIPT" ]; then
       install -m755 "$SCRIPT_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
     fi
   done
   if [ -f "$SCRIPT_DIR/localai.conf" ]; then
     install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+  fi
+  if [ -x "$AI_DIR/localai" ]; then
+    mkdir -p "$LOCALAI_USER_BIN_DIR"
+    cat > "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME" <<EOF
+#!/usr/bin/env bash
+exec "$AI_DIR/localai" "\$@"
+EOF
+    chmod 755 "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
   fi
 fi
 

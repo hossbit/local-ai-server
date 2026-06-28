@@ -10,6 +10,7 @@ AI_DIR=""
 BIN_DIR=""
 MODELS_DIR=""
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
+LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 REMOVE_MODELS=0
 REMOVE_LLAMA_SWAP=0
 FORCE=0
@@ -147,6 +148,7 @@ for TARGET in \
   "$AI_DIR/rebuild-config.sh" \
   "$AI_DIR/update-local-ai.sh" \
   "$AI_DIR/uninstall-local-ai.sh" \
+  "$AI_DIR/$LOCALAI_CLI_NAME" \
   "$AI_DIR/localai.conf" \
   "$AI_DIR/$LOCALAI_BACKEND_FILE" \
   "$AI_DIR/$LOCALAI_CONFIG_FILE" \
@@ -158,6 +160,10 @@ do
     REMOVE_TARGETS+=("$TARGET")
   fi
 done
+
+if path_exists "$LOCALAI_CLI_LINK"; then
+  REMOVE_TARGETS+=("$LOCALAI_CLI_LINK")
+fi
 
 if [ "$REMOVE_MODELS" -eq 1 ]; then
   if path_exists "$MODELS_DIR"; then
@@ -262,6 +268,8 @@ remove_if_exists "$AI_DIR/stop.sh"
 remove_if_exists "$AI_DIR/rebuild-config.sh"
 remove_if_exists "$AI_DIR/update-local-ai.sh"
 remove_if_exists "$AI_DIR/uninstall-local-ai.sh"
+remove_if_exists "$AI_DIR/$LOCALAI_CLI_NAME"
+remove_if_exists "$LOCALAI_CLI_LINK"
 remove_if_exists "$AI_DIR/localai.conf"
 remove_if_exists "$AI_DIR/$LOCALAI_BACKEND_FILE"
 remove_if_exists "$AI_DIR/$LOCALAI_CONFIG_FILE"
