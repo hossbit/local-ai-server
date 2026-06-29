@@ -47,6 +47,8 @@ Commands:
   check       Check process, port, and API health
   logs        Follow service logs
   models      List installed GGUF models
+  load        Load one model, or all installed models
+  unload      Unload one loaded model, or all loaded models
   update      Update llama.cpp, llama-swap, and helper scripts
   version     Show LocalAI and component versions
   uninstall   Uninstall LocalAI
@@ -209,6 +211,121 @@ models_cmd() {
   find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -printf '%f\n' | sort
 }
 
+api_base_url() {
+  local port
+
+  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
+}
+
+require_api_tools() {
+  command -v curl >/dev/null 2>&1 || fail "curl is required for model load/unload commands"
+  command -v jq >/dev/null 2>&1 || fail "jq is required for model load/unload commands"
+}
+
+api_models() {
+  curl --max-time 10 -fsS "$(api_base_url)/v1/models" | jq -r '.data[]?.id'
+}
+
+installed_model_exists() {
+  local model="$1"
+
+  [ -f "$MODELS_DIR/${model}.gguf" ]
+}
+
+model_is_embedding() {
+  local model="${1,,}"
+
+  case "$model" in
+    *qwen3*embedding*|*embedding*|*embed*|*bge*|*e5*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+load_one_model() {
+  local model="$1"
+  local base
+
+  base="$(api_base_url)"
+  if model_is_embedding "$model"; then
+    curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/embeddings" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg model "$model" '{model: $model, input: "ok"}')" >/dev/null
+  else
+    curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 1, stream: false}')" >/dev/null
+  fi
+  echo "Loaded: $model"
+}
+
+load_cmd() {
+  local target="${1:-}" model loaded=0 failed=0
+
+  [ -n "$target" ] || fail "usage: localai load MODEL|all"
+  [ "$#" -eq 1 ] || fail "usage: localai load MODEL|all"
+  require_api_tools
+
+  if [ "$target" = "all" ]; then
+    while IFS= read -r model; do
+      [ -n "$model" ] || continue
+      loaded=1
+      if ! load_one_model "$model"; then
+        echo "Error: failed to load $model" >&2
+        failed=1
+      fi
+    done < <(api_models)
+    [ "$loaded" -eq 1 ] || fail "no models are available from $(api_base_url)/v1/models"
+    return "$failed"
+  fi
+
+  installed_model_exists "$target" || fail "model not found: $target"
+  load_one_model "$target"
+}
+
+running_models() {
+  curl --max-time 10 -fsS "$(api_base_url)/running" | jq -r '.running[]?'
+}
+
+url_encode() {
+  jq -nr --arg value "$1" '$value | @uri'
+}
+
+unload_one_model() {
+  local model="$1"
+  local encoded_model
+
+  encoded_model="$(url_encode "$model")"
+  curl --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload/${encoded_model}" >/dev/null
+  echo "Unloaded: $model"
+}
+
+unload_cmd() {
+  local target="${1:-}" model unloaded=0
+
+  [ -n "$target" ] || fail "usage: localai unload MODEL|all"
+  [ "$#" -eq 1 ] || fail "usage: localai unload MODEL|all"
+  require_api_tools
+
+  if [ "$target" = "all" ]; then
+    while IFS= read -r model; do
+      [ -n "$model" ] || continue
+      unloaded=1
+    done < <(running_models)
+
+    if [ "$unloaded" -eq 0 ]; then
+      echo "No loaded models to unload."
+      return 0
+    fi
+
+    curl --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload" >/dev/null
+    echo "Unloaded all loaded models."
+    return 0
+  fi
+
+  unload_one_model "$target"
+}
+
 update_cmd() {
   local updater="$AI_DIR/update-local-ai.sh"
   [ -x "$updater" ] || updater="$SCRIPT_DIR/update-local-ai.sh"
@@ -264,6 +381,12 @@ case "$COMMAND" in
     ;;
   models)
     models_cmd
+    ;;
+  load)
+    load_cmd "$@"
+    ;;
+  unload)
+    unload_cmd "$@"
     ;;
   update)
     update_cmd "$@"

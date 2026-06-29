@@ -29,6 +29,33 @@ resolve_ai_dir() {
 
 AI_DIR="$(resolve_ai_dir)"
 PID_FILE="$AI_DIR/$LOCALAI_PID_FILE"
+PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
+
+api_base_url() {
+  local port
+
+  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
+}
+
+unload_loaded_models() {
+  local base running_count
+
+  command -v curl >/dev/null 2>&1 || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+
+  base="$(api_base_url)"
+  running_count="$(
+    curl --max-time 5 -fsS "$base/running" 2>/dev/null |
+      jq '[.running[]?] | length' 2>/dev/null
+  )" || return 0
+
+  if [[ "$running_count" =~ ^[0-9]+$ ]] && ((running_count > 0)); then
+    echo "Unloading loaded model(s) before stop..."
+    curl --max-time 30 -fsS -X POST "$base/api/models/unload" >/dev/null 2>&1 || \
+      echo "Warning: failed to unload loaded model(s) before stop." >&2
+  fi
+}
 
 if [ ! -f "$PID_FILE" ]; then
   echo "LocalAI is not running (no PID file)."
@@ -49,6 +76,8 @@ if kill -0 "$PID" 2>/dev/null; then
     echo "Removed stale PID file; PID $PID belongs to ${COMMAND:-another process}."
     exit 0
   fi
+
+  unload_loaded_models
 
   kill "$PID"
 

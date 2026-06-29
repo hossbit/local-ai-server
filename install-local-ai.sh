@@ -405,6 +405,14 @@ echo
 echo "  List models:"
 echo "    localai models"
 echo
+echo "  Load models:"
+echo "    localai load MODEL"
+echo "    localai load all"
+echo
+echo "  Unload models:"
+echo "    localai unload MODEL"
+echo "    localai unload all"
+echo
 echo "  Update components:"
 echo "    localai update"
 echo

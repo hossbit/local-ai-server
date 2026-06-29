@@ -6,20 +6,12 @@
 
 <div align="center">
 
-![Ubuntu](https://img.shields.io/badge/Linux-Ubuntu-E95420)
-![Debian](https://img.shields.io/badge/Linux-Debian-A81D33)
-![Fedora](https://img.shields.io/badge/Linux-Fedora-51A2DA)
-![RHEL](https://img.shields.io/badge/Linux-RHEL-EE0000)
-![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25)
+![Linux](https://img.shields.io/badge/Linux-x86--64-111827)
+![Debian-based](https://img.shields.io/badge/Debian--based-apt--get-A81D33)
+![Red Hat-based](https://img.shields.io/badge/Red%20Hat--based-dnf%20%7C%20yum-EE0000)
 ![llama.cpp](https://img.shields.io/badge/Engine-llama.cpp-6C5CE7)
-![CPU](https://img.shields.io/badge/Backend-CPU-64748B)
-![Vulkan](https://img.shields.io/badge/Backend-Vulkan-AC162C)
-![ROCm](https://img.shields.io/badge/Backend-ROCm-ED1C24)
-![OpenVINO](https://img.shields.io/badge/Backend-OpenVINO-0071C5)
-![SYCL](https://img.shields.io/badge/Backend-SYCL-7C3AED)
 ![API](https://img.shields.io/badge/API-OpenAI--compatible-111827)
 ![Service](https://img.shields.io/badge/Service-systemd%20user-F59E0B)
-![Installer](https://img.shields.io/badge/Install-custom%20path-EC4899)
 ![License](https://img.shields.io/badge/License-MIT-10B981)
 </div>
 
@@ -45,19 +37,6 @@ the configured install directory, which defaults to `~/ai/models`.
 - A systemd user service
 - A `localai` command for service, model, update, and uninstall tasks
 
-```text
-OpenAI-compatible client
-          |
-          v
- llama-swap (localhost)
-          |
-          v
- llama.cpp
-          |
-          v
-    GGUF model files
-```
-
 ## Requirements
 
 - Ubuntu, Debian, Fedora, RHEL, or another compatible x86-64 Linux system
@@ -72,8 +51,6 @@ testing, use `LLAMA_CPP_BACKEND=cpu`; CPU installs use smaller defaults and no
 GPU offload.
 
 The installer can install required packages with `apt-get`, `dnf`, or `yum`.
-Upstream llama.cpp Linux x64 release archives currently use `ubuntu` in their
-file names, even when they can run on other compatible Linux distributions.
 
 ## Install
 
@@ -117,34 +94,10 @@ LLAMA_CPP_BACKEND=sycl-fp16 ./install-local-ai.sh
 LLAMA_CPP_BACKEND=sycl-fp32 ./install-local-ai.sh
 ```
 
-Fedora and RHEL systems use the same upstream Linux x64 llama.cpp archives as
-Ubuntu/Debian. If a selected backend cannot run because a runtime library is
-missing, the installer stops after testing `llama-server --version` and tells
-you to install the missing runtime or retry with another backend such as `cpu`.
-
-CPU backend installs default to:
-
-```text
-LOCALAI_N_GPU_LAYERS=0
-LOCALAI_CTX_SIZE=4096
-```
-
-The installer:
-
-1. Installs required system packages.
-2. Downloads the pinned llama.cpp b9672 backend archive and llama-swap v226.
-3. Creates `bin`, `models`, the shared `localai.conf`, helper scripts, and the `localai` command inside the install directory.
-4. Selects an available port, beginning at `11435`.
-5. Installs a `~/.local/bin/localai` launcher and creates a systemd user service that points to the selected install directory.
-
 The installer does not start the server automatically. If no `.gguf` files are
 found in the models directory, it prints a warning because chat requests need a
-model. Add at least one model, then start it with:
-
-```bash
-localai start
-localai check
-```
+model. Add at least one model, then use the service commands below to start and
+check LocalAI.
 
 To start it automatically when you log in:
 
@@ -264,47 +217,36 @@ usually require a non-empty value.
 
 ## Service and helper commands
 
-```bash
-localai start
-localai stop
-localai restart
-localai status
-localai check
-localai check --chat
-localai logs
-localai models
-localai update
-localai version
-localai uninstall
-```
+Most users only need these:
 
-`localai start`, `localai stop`, and `localai restart` show the service method,
-service file, install directory, API endpoint, log path, and the exact
-`systemctl` or helper script command being used. `localai status` also reports
-the actual `llama-swap` process and listening port, which is more useful than
-systemd's `active (exited)` wording for this helper service.
+| Command | Purpose |
+| --- | --- |
+| `localai start` | Start the service. |
+| `localai stop` | Unload loaded models, then stop the service. |
+| `localai restart` | Restart the service. |
+| `localai status` | Show service, process, API, and port status. |
+| `localai check` | Check the API and model list. |
+| `localai logs` | Follow LocalAI logs. |
+| `localai models` | List installed `.gguf` models. |
+| `localai load MODEL` | Warm one model, for example `localai load Qwen2.5-Coder-7B-Instruct-Q4_K_M`. |
+| `localai unload MODEL` | Release one loaded model. |
+| `localai unload all` | Release all loaded models. |
+| `localai update` | Update installed components. |
+| `localai version` | Show component versions. |
+| `localai uninstall` | Remove helper files; models are kept by default. |
 
-Example:
+Advanced forms:
 
-```text
-LocalAI service details:
-  method: systemd user service
-  service: localai.service
-  service file: ~/.config/systemd/user/localai.service
-  install dir: ~/ai
-  API: http://127.0.0.1:11435
-  log: ~/ai/logs/llama-swap.log
-Running: systemctl --user start localai
-```
-
-Set `LOCALAI_DIR` if you chose a custom install path and are running the
-command before installation has created the launcher.
-
-Direct-process logs are written to:
-
-```text
-~/ai/logs/llama-swap.log
-```
+| Command | Purpose |
+| --- | --- |
+| `localai check --chat` | Also send a tiny chat request. |
+| `localai load all` | Warm every model; use only when you have enough memory. |
+| `localai update --no-start` | Update and leave the service stopped. |
+| `LLAMA_CPP_BACKEND=cpu localai update` | Switch backend during update. |
+| `LOCALAI_CTX_SIZE=8192 LOCALAI_N_GPU_LAYERS=20 localai start` | Override runtime settings for one start. |
+| `localai uninstall --remove-models` | Also remove downloaded models. |
+| `localai uninstall --dir ~/my-ai` | Uninstall from a custom directory. |
+| `localai uninstall --remove-llama-swap` | Also remove the shared `llama-swap` binary. |
 
 ## Configuration
 
@@ -315,10 +257,9 @@ localai.conf          # source default
 ~/ai/localai.conf     # installed copy
 ```
 
-This file contains commented settings for install paths, service name, release
-versions, backend asset patterns, package lists, port, listen host, generated
-config filenames, logs, PID files, and llama.cpp runtime defaults. Environment
-variables still override the config for one command.
+This file contains install paths, service names, port settings, logs, PID files,
+and llama.cpp runtime defaults. Environment variables still override the config
+for one command.
 
 `rebuild-config.sh` creates `config.yaml` from every `.gguf` file in the
 install directory's `models` folder. It runs automatically whenever the server
@@ -331,87 +272,8 @@ Default runtime settings are:
 - KV cache: `q4_0`
 - Idle model timeout: `900` seconds
 
-Override context size or GPU layers for one start:
-
-```bash
-LOCALAI_CTX_SIZE=8192 LOCALAI_N_GPU_LAYERS=20 localai start
-```
-
-If you use systemd and want persistent overrides, add them with:
-
-```bash
-systemctl --user edit localai
-```
-
-Then enter:
-
-```ini
-[Service]
-Environment=LOCALAI_CTX_SIZE=8192
-Environment=LOCALAI_N_GPU_LAYERS=20
-```
-
-Apply the change:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart localai
-```
-
-## Update
-
-Update installed components:
-
-```bash
-localai update
-```
-
-The updater checks GitHub for the latest compatible releases, refreshes the
-installed helper scripts when run from the repository, updates outdated
-components, and preserves models, the configured port, and runtime tuning such
-as context size, GPU layers, threads, and cache settings. By default it starts
-the server after an update, using the systemd user service when it is installed;
-use `--no-start` to leave it stopped.
-
-The updater keeps the installed llama.cpp backend. To switch backend during an
-update, pass `LLAMA_CPP_BACKEND`:
-
-```bash
-LLAMA_CPP_BACKEND=cpu localai update
-```
-
-## Uninstall
-
-Remove the user service and installed helper files:
-
-```bash
-localai uninstall
-```
-
-For a custom install directory:
-
-```bash
-LOCALAI_DIR=~/my-ai localai uninstall
-```
-
-By default the uninstaller keeps the install directory's `models` folder. To
-remove downloaded models too:
-
-```bash
-localai uninstall --remove-models
-```
-
-For a custom install directory, either set `LOCALAI_DIR` or pass `--dir`:
-
-```bash
-localai uninstall --dir ~/my-ai
-```
-
-To also remove the shared `llama-swap` binary installed in `/usr/local/bin`:
-
-```bash
-localai uninstall --remove-llama-swap
-```
+Override context size or GPU layers for one start with the start command form
+shown in the service command table.
 
 ## Troubleshooting
 
@@ -419,8 +281,6 @@ Check the configured port and models:
 
 ```bash
 cat ~/ai/port
-localai models
-localai check
 curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
 ```
 
@@ -436,7 +296,6 @@ Check logs:
 
 ```bash
 tail -n 100 ~/ai/logs/llama-swap.log
-localai logs
 ```
 
 If a Hugging Face download returns `401 Unauthorized`:
