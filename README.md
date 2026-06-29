@@ -61,9 +61,6 @@ chmod +x ./*.sh
 ./install-local-ai.sh
 ```
 
-The installer creates `~/.local/bin/localai`. Make sure `~/.local/bin` is in
-your shell `PATH` so the command is available from any directory.
-
 The installer asks where to install LocalAI:
 
 ```text

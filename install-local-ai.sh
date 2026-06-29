@@ -366,11 +366,7 @@ fi
 install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
 append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
 
-cat > "$LOCALAI_CLI_LINK" <<EOF
-#!/usr/bin/env bash
-exec "$LOCALAI_CLI_PATH" "\$@"
-EOF
-chmod 755 "$LOCALAI_CLI_LINK"
+ln -sfn "$LOCALAI_CLI_PATH" "$LOCALAI_CLI_LINK"
 
 if ! systemctl --user daemon-reload; then
   echo "Warning: could not reload the systemd user manager." >&2
