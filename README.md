@@ -67,7 +67,9 @@ OpenAI-compatible client
 
 The installer uses the known compatible releases `llama.cpp b9672` and
 `llama-swap v226`. The separate update script checks for newer releases.
-The default llama.cpp backend is `vulkan`.
+The default llama.cpp backend is `vulkan`. For CPU-only machines or simple VM
+testing, use `LLAMA_CPP_BACKEND=cpu`; CPU installs use smaller defaults and no
+GPU offload.
 
 The installer can install required packages with `apt-get`, `dnf`, or `yum`.
 Upstream llama.cpp Linux x64 release archives currently use `ubuntu` in their
@@ -120,6 +122,13 @@ Ubuntu/Debian. If a selected backend cannot run because a runtime library is
 missing, the installer stops after testing `llama-server --version` and tells
 you to install the missing runtime or retry with another backend such as `cpu`.
 
+CPU backend installs default to:
+
+```text
+LOCALAI_N_GPU_LAYERS=0
+LOCALAI_CTX_SIZE=4096
+```
+
 The installer:
 
 1. Installs required system packages.
@@ -134,6 +143,7 @@ model. Add at least one model, then start it with:
 
 ```bash
 localai start
+localai check
 ```
 
 To start it automatically when you log in:
@@ -191,6 +201,11 @@ Qwen2.5-Coder-7B-Instruct-Q4_K_M
 
 `Q4_K_M` is a useful starting point for GPUs with limited VRAM. Actual memory
 use also depends on model size, context length, and GPU-offloaded layers.
+
+Embedding models, such as many `bge` or `e5` files, are for embeddings and
+search-style workflows. For chat, choose an instruct/chat model such as a
+`Qwen*-Instruct` GGUF file. `Q2_K` is smaller and easier to move around, but
+quality is lower than `Q4_K_M`.
 
 ## Use the server
 
@@ -254,6 +269,8 @@ localai start
 localai stop
 localai restart
 localai status
+localai check
+localai check --chat
 localai logs
 localai models
 localai update
@@ -263,7 +280,9 @@ localai uninstall
 
 `localai start`, `localai stop`, and `localai restart` show the service method,
 service file, install directory, API endpoint, log path, and the exact
-`systemctl` or helper script command being used.
+`systemctl` or helper script command being used. `localai status` also reports
+the actual `llama-swap` process and listening port, which is more useful than
+systemd's `active (exited)` wording for this helper service.
 
 Example:
 
@@ -305,17 +324,17 @@ variables still override the config for one command.
 install directory's `models` folder. It runs automatically whenever the server
 starts.
 
-The defaults are:
+Default runtime settings are:
 
-- Context size: `32768`
-- GPU layers: `10`
-- KV cache: `q8_0`
+- Vulkan and other GPU-capable backends: context size `16384`, GPU layers `8`
+- CPU backend: context size `4096`, GPU layers `0`
+- KV cache: `q4_0`
 - Idle model timeout: `900` seconds
 
 Override context size or GPU layers for one start:
 
 ```bash
-CTX_SIZE=8192 N_GPU_LAYERS=20 localai start
+LOCALAI_CTX_SIZE=8192 LOCALAI_N_GPU_LAYERS=20 localai start
 ```
 
 If you use systemd and want persistent overrides, add them with:
@@ -328,8 +347,8 @@ Then enter:
 
 ```ini
 [Service]
-Environment=CTX_SIZE=8192
-Environment=N_GPU_LAYERS=20
+Environment=LOCALAI_CTX_SIZE=8192
+Environment=LOCALAI_N_GPU_LAYERS=20
 ```
 
 Apply the change:
@@ -349,7 +368,8 @@ localai update
 
 The updater checks GitHub for the latest compatible releases, refreshes the
 installed helper scripts when run from the repository, updates outdated
-components, and preserves models and the configured port. By default it starts
+components, and preserves models, the configured port, and runtime tuning such
+as context size, GPU layers, threads, and cache settings. By default it starts
 the server after an update, using the systemd user service when it is installed;
 use `--no-start` to leave it stopped.
 
@@ -381,6 +401,12 @@ remove downloaded models too:
 localai uninstall --remove-models
 ```
 
+For a custom install directory, either set `LOCALAI_DIR` or pass `--dir`:
+
+```bash
+localai uninstall --dir ~/my-ai
+```
+
 To also remove the shared `llama-swap` binary installed in `/usr/local/bin`:
 
 ```bash
@@ -394,6 +420,7 @@ Check the configured port and models:
 ```bash
 cat ~/ai/port
 localai models
+localai check
 curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
 ```
 

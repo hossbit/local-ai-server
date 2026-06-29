@@ -69,6 +69,11 @@ fi
 
 "$AI_DIR/rebuild-config.sh"
 
+if ! find "$AI_DIR/$LOCALAI_MODELS_SUBDIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
+  echo "No GGUF models found in $AI_DIR/$LOCALAI_MODELS_SUBDIR."
+  echo "LocalAI will start, but chat requests need a model file and a matching model name."
+fi
+
 nohup "$LLAMA_SWAP_BIN" \
   --listen "${LOCALAI_LISTEN_HOST}:${PORT}" \
   --config "$CONFIG_FILE" \
@@ -85,3 +90,4 @@ if ! kill -0 "$PID" 2>/dev/null; then
 fi
 
 echo "LocalAI started at http://${LOCALAI_LISTEN_HOST}:${PORT} (PID $PID)"
+echo "Use 'localai models' to see model names, and 'localai check' to verify the API."

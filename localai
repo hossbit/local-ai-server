@@ -44,6 +44,7 @@ Commands:
   stop        Stop the LocalAI service
   restart     Restart the LocalAI service
   status      Show service status
+  check       Check process, port, and API health
   logs        Follow service logs
   models      List installed GGUF models
   update      Update llama.cpp, llama-swap, and helper scripts
@@ -75,6 +76,33 @@ print_service_details() {
   echo "  log: $LOG_FILE"
 }
 
+pid_status() {
+  local pid command port
+
+  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  if [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
+    pid="$(<"$AI_DIR/$LOCALAI_PID_FILE")"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      command="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+      if [[ "$command" == *llama-swap* ]]; then
+        echo "LocalAI process: running (llama-swap PID $pid)"
+      else
+        echo "LocalAI process: stale PID file; PID $pid belongs to ${command:-another process}"
+      fi
+    else
+      echo "LocalAI process: not running; stale PID file exists at $AI_DIR/$LOCALAI_PID_FILE"
+    fi
+  else
+    echo "LocalAI process: not running (no PID file)"
+  fi
+  echo "API: http://${LOCALAI_LISTEN_HOST}:$port"
+  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${port}$"; then
+    echo "Port: listening"
+  else
+    echo "Port: not listening"
+  fi
+}
+
 service_cmd() {
   local action="$1"
 
@@ -103,24 +131,57 @@ service_cmd() {
       service_cmd stop
       service_cmd start
       ;;
-    status)
-      if [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
-        local pid
-        pid="$(<"$AI_DIR/$LOCALAI_PID_FILE")"
-        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-          echo "LocalAI is running (PID $pid)."
-        else
-          echo "LocalAI is not running; stale PID file exists at $AI_DIR/$LOCALAI_PID_FILE."
-        fi
-      else
-        echo "LocalAI is not running."
-      fi
-      [ -f "$PORT_FILE" ] && echo "API: http://${LOCALAI_LISTEN_HOST}:$(<"$PORT_FILE")"
-      ;;
     *)
       fail "unsupported service action: $action"
       ;;
   esac
+}
+
+status_cmd() {
+  if has_user_service; then
+    print_service_details "systemd user service"
+    echo "Systemd service:"
+    systemctl --user status "$SERVICE_UNIT" --no-pager || true
+    echo
+    echo "Note: this service uses a helper script and may show active (exited); the process check below is authoritative."
+  else
+    print_service_details "helper script"
+  fi
+  pid_status
+}
+
+check_cmd() {
+  local port model chat=0
+
+  if [ "${1:-}" = "--chat" ]; then
+    chat=1
+  elif [ "$#" -gt 0 ]; then
+    fail "usage: localai check [--chat]"
+  fi
+
+  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  pid_status
+
+  if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    fail "curl and jq are required for API checks"
+  fi
+
+  echo
+  echo "API models:"
+  if ! curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models" | jq -r '.data[]?.id'; then
+    fail "API did not respond at http://${LOCALAI_LISTEN_HOST}:${port}/v1/models"
+  fi
+
+  if [ "$chat" -eq 1 ]; then
+    model="$(curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models" | jq -r '.data[0]?.id')"
+    [ -n "$model" ] && [ "$model" != "null" ] || fail "no model is available for chat check"
+    echo
+    echo "Chat check:"
+    curl --max-time 120 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK\"}],\"max_tokens\":8}" |
+      jq -r '.choices[0].message.content // .choices[0].text // .'
+  fi
 }
 
 logs_cmd() {
@@ -189,8 +250,14 @@ if [ "$#" -gt 0 ]; then
 fi
 
 case "$COMMAND" in
-  start|stop|restart|status)
+  start|stop|restart)
     service_cmd "$COMMAND"
+    ;;
+  status)
+    status_cmd
+    ;;
+  check)
+    check_cmd "$@"
     ;;
   logs)
     logs_cmd

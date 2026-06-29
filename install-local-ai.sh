@@ -184,6 +184,43 @@ cleanup_bin_artifacts() {
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
+config_assignment_value() {
+  local key="$1"
+  local file="$2"
+
+  [ -f "$file" ] || return 1
+  awk -F= -v key="$key" '
+    $1 == key {
+      value = substr($0, index($0, "=") + 1)
+      sub(/[[:space:]]*#.*/, "", value)
+      gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", value)
+      print value
+    }
+  ' "$file" | tail -n 1
+}
+
+append_runtime_tuning() {
+  local installed_conf="$AI_DIR/localai.conf"
+  local source_conf="$1"
+  local key value had_ctx=0 had_gpu=0
+
+  {
+    echo
+    echo "# Runtime tuning preserved by installer."
+    for key in LOCALAI_CTX_SIZE LOCALAI_N_GPU_LAYERS LOCALAI_THREADS LOCALAI_CACHE_TYPE_K LOCALAI_CACHE_TYPE_V LOCALAI_HEALTH_CHECK_TIMEOUT LOCALAI_GLOBAL_TTL; do
+      value="$(config_assignment_value "$key" "$source_conf" || true)"
+      if [ -n "$value" ]; then
+        printf '%s="%s"\n' "$key" "$value"
+        [ "$key" = "LOCALAI_CTX_SIZE" ] && had_ctx=1
+        [ "$key" = "LOCALAI_N_GPU_LAYERS" ] && had_gpu=1
+      fi
+    done
+    if [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
+      [ "$had_ctx" -eq 1 ] || echo 'LOCALAI_CTX_SIZE="4096"'
+      [ "$had_gpu" -eq 1 ] || echo 'LOCALAI_N_GPU_LAYERS="0"'
+    fi
+  } >> "$installed_conf"
+}
 [ "$(uname -m)" = "x86_64" ] || fail "this installer currently supports x86_64 Linux only"
 
 parse_args "$@"
@@ -321,7 +358,13 @@ install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
 install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$AI_DIR/update-local-ai.sh"
 install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$AI_DIR/uninstall-local-ai.sh"
 install -m755 "$SCRIPT_DIR/localai" "$LOCALAI_CLI_PATH"
+PREVIOUS_LOCALAI_CONF="$AI_DIR/localai.conf"
+if [ -f "$PREVIOUS_LOCALAI_CONF" ]; then
+  cp "$PREVIOUS_LOCALAI_CONF" "$DOWNLOAD_DIR/localai.conf.previous"
+  PREVIOUS_LOCALAI_CONF="$DOWNLOAD_DIR/localai.conf.previous"
+fi
 install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
 
 cat > "$LOCALAI_CLI_LINK" <<EOF
 #!/usr/bin/env bash
@@ -352,6 +395,9 @@ echo "    localai restart"
 echo
 echo "  Check status:"
 echo "    localai status"
+echo
+echo "  Check API health:"
+echo "    localai check"
 echo
 echo "  View logs:"
 echo "    localai logs"
