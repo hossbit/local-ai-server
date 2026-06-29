@@ -261,6 +261,23 @@ localai version
 localai uninstall
 ```
 
+`localai start`, `localai stop`, and `localai restart` show the service method,
+service file, install directory, API endpoint, log path, and the exact
+`systemctl` or helper script command being used.
+
+Example:
+
+```text
+LocalAI service details:
+  method: systemd user service
+  service: localai.service
+  service file: ~/.config/systemd/user/localai.service
+  install dir: ~/ai
+  API: http://127.0.0.1:11435
+  log: ~/ai/logs/llama-swap.log
+Running: systemctl --user start localai
+```
+
 Set `LOCALAI_DIR` if you chose a custom install path and are running the
 command before installation has created the launcher.
 

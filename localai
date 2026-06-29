@@ -33,6 +33,7 @@ MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
 PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
 SERVICE_UNIT="${LOCALAI_SERVICE_NAME%.service}"
+SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
 
 usage() {
   cat <<EOF
@@ -62,21 +63,40 @@ has_user_service() {
     systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
 }
 
+print_service_details() {
+  local method="$1"
+
+  echo "LocalAI service details:"
+  echo "  method: $method"
+  echo "  service: $LOCALAI_SERVICE_NAME"
+  echo "  service file: $SERVICE_FILE"
+  echo "  install dir: $AI_DIR"
+  echo "  API: http://${LOCALAI_LISTEN_HOST}:$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  echo "  log: $LOG_FILE"
+}
+
 service_cmd() {
   local action="$1"
 
   if has_user_service; then
+    print_service_details "systemd user service"
+    echo "Running: systemctl --user $action $SERVICE_UNIT"
     systemctl --user "$action" "$SERVICE_UNIT"
+    echo "LocalAI service $action completed."
     return
   fi
 
   case "$action" in
     start)
       [ -x "$AI_DIR/start.sh" ] || fail "missing helper: $AI_DIR/start.sh"
+      print_service_details "helper script"
+      echo "Running: $AI_DIR/start.sh"
       "$AI_DIR/start.sh"
       ;;
     stop)
       [ -x "$AI_DIR/stop.sh" ] || fail "missing helper: $AI_DIR/stop.sh"
+      print_service_details "helper script"
+      echo "Running: $AI_DIR/stop.sh"
       "$AI_DIR/stop.sh"
       ;;
     restart)
