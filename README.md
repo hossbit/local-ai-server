@@ -54,6 +54,20 @@ The installer can install required packages with `apt-get`, `dnf`, or `yum`.
 
 ## Install
 
+One-line install:
+
+```bash
+curl -fsSL https://hossbit.github.io/localai/install.sh | bash
+```
+
+Custom install directory:
+
+```bash
+curl -fsSL https://hossbit.github.io/localai/install.sh | LOCALAI_DIR="$HOME/my-ai" bash
+```
+
+Manual install:
+
 ```bash
 git clone https://github.com/hossbit/local-ai-server.git
 cd local-ai-server
