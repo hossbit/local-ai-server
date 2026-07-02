@@ -15,12 +15,6 @@
 ![License](https://img.shields.io/badge/License-MIT-10B981)
 </div>
 
-<div align="center">
-  <a href="https://buymeacoffee.com/mirhh">
-    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.png" alt="Buy me a coffee" width="300">
-  </a>
-</div>
-
 Run GGUF language models locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
 CPU or GPU acceleration, and
