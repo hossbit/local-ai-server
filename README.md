@@ -146,25 +146,6 @@ becomes:
 Qwen2.5-Coder-7B-Instruct-Q4_K_M
 ```
 
-## Choose a quantization
-
-| Quantization | Relative quality | Relative memory use |
-| --- | --- | --- |
-| Q2_K | Lowest | Smallest |
-| Q3_K_M | Good | Low |
-| Q4_K_M | Recommended balance | Medium |
-| Q5_K_M | Better | High |
-| Q6_K | Very good | Higher |
-| Q8_0 | Near FP16 | Highest |
-
-`Q4_K_M` is a useful starting point for GPUs with limited VRAM. Actual memory
-use also depends on model size, context length, and GPU-offloaded layers.
-
-Embedding models, such as many `bge` or `e5` files, are for embeddings and
-search-style workflows. For chat, choose an instruct/chat model such as a
-`Qwen*-Instruct` GGUF file. `Q2_K` is smaller and easier to move around, but
-quality is lower than `Q4_K_M`.
-
 ## Use the server
 
 Read the selected port:
