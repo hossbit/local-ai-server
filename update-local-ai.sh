@@ -10,6 +10,7 @@ AI_DIR=""
 BIN_DIR=""
 LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-}"
 LLAMA_CPP_ASSET_RE=""
+LOCALAI_SOURCE_DIR=""
 START_AFTER_UPDATE=1
 
 if [ "${1:-}" = "--no-start" ]; then
@@ -26,6 +27,10 @@ log() {
 fail() {
   echo "Error: $*" >&2
   exit 1
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
 }
 
 expand_path() {
@@ -47,6 +52,48 @@ resolve_ai_dir() {
   else
     printf '%s\n' "$SCRIPT_DIR"
   fi
+}
+
+localai_archive_url() {
+  case "${LOCALAI_REF:-main}" in
+    v*|refs/tags/*)
+      printf '%s/refs/tags/%s.tar.gz\n' "${LOCALAI_TARBALL_BASE:-https://github.com/hossbit/local-ai-server/archive}" "${LOCALAI_REF#refs/tags/}"
+      ;;
+    refs/heads/*)
+      printf '%s/%s.tar.gz\n' "${LOCALAI_TARBALL_BASE:-https://github.com/hossbit/local-ai-server/archive}" "$LOCALAI_REF"
+      ;;
+    *)
+      printf '%s/refs/heads/%s.tar.gz\n' "${LOCALAI_TARBALL_BASE:-https://github.com/hossbit/local-ai-server/archive}" "${LOCALAI_REF:-main}"
+      ;;
+  esac
+}
+
+resolve_localai_source_dir() {
+  local archive_file extracted
+
+  if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
+    LOCALAI_SOURCE_DIR="$SCRIPT_DIR"
+    return
+  fi
+
+  log "Fetching LocalAI helper scripts"
+  LOCALAI_SOURCE_DIR="$TMP_DIR/localai-source"
+
+  if have git; then
+    git clone --depth 1 --branch "${LOCALAI_REF:-main}" \
+      "${LOCALAI_REPO_URL:-https://github.com/hossbit/local-ai-server.git}" \
+      "$LOCALAI_SOURCE_DIR"
+  else
+    archive_file="$TMP_DIR/localai.tar.gz"
+    curl -4 -fsSL "$(localai_archive_url)" -o "$archive_file"
+    tar -xzf "$archive_file" -C "$TMP_DIR"
+    extracted="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'local-ai-server-*' | head -n 1)"
+    [ -n "$extracted" ] || fail "could not find extracted LocalAI source directory"
+    mv "$extracted" "$LOCALAI_SOURCE_DIR"
+  fi
+
+  [ -f "$LOCALAI_SOURCE_DIR/localai.conf" ] || fail "downloaded LocalAI source is missing localai.conf"
+  [ -x "$LOCALAI_SOURCE_DIR/localai" ] || fail "downloaded LocalAI source is missing localai"
 }
 
 select_llama_cpp_asset_regex() {
@@ -117,6 +164,13 @@ start_localai() {
 print_current_versions() {
   echo
   echo "Current versions:"
+  if [ -f "$AI_DIR/localai.conf" ]; then
+    (
+      # shellcheck source=/dev/null
+      . "$AI_DIR/localai.conf"
+      echo "LocalAI: $LOCALAI_VERSION"
+    )
+  fi
   "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
   echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
   llama-swap --version 2>&1 | awk 'NR == 1 {print; exit}'
@@ -205,24 +259,25 @@ select_llama_cpp_asset_regex
 mkdir -p "$AI_DIR" "$BIN_DIR"
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
+resolve_localai_source_dir
 
 ###############################################################################
 # REFRESH INSTALLED HELPER SCRIPTS
 ###############################################################################
 
-if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
+if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
   PREVIOUS_LOCALAI_CONF="$AI_DIR/localai.conf"
   if [ -f "$PREVIOUS_LOCALAI_CONF" ]; then
     cp "$PREVIOUS_LOCALAI_CONF" "$TMP_DIR/localai.conf.previous"
     PREVIOUS_LOCALAI_CONF="$TMP_DIR/localai.conf.previous"
   fi
   for SCRIPT in localai start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh; do
-    if [ -f "$SCRIPT_DIR/$SCRIPT" ]; then
-      install -m755 "$SCRIPT_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
+    if [ -f "$LOCALAI_SOURCE_DIR/$SCRIPT" ]; then
+      install -m755 "$LOCALAI_SOURCE_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
     fi
   done
-  if [ -f "$SCRIPT_DIR/localai.conf" ]; then
-    install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+  if [ -f "$LOCALAI_SOURCE_DIR/localai.conf" ]; then
+    install -m644 "$LOCALAI_SOURCE_DIR/localai.conf" "$AI_DIR/localai.conf"
     append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
   fi
   if [ -x "$AI_DIR/localai" ]; then
