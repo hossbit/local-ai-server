@@ -335,9 +335,7 @@ Special thanks to the maintainers and contributors of these projects.
 LocalAI focuses on simplifying installation, configuration, model management,
 and service deployment for local LLM environments.
 
-## License
-
-MIT License
+## Support
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/give-it-a-star.png" alt="If this repo helped you, give it a star" width="100%">
