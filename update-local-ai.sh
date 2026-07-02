@@ -282,11 +282,7 @@ if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
   fi
   if [ -x "$AI_DIR/localai" ]; then
     mkdir -p "$LOCALAI_USER_BIN_DIR"
-    cat > "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME" <<EOF
-#!/usr/bin/env bash
-exec "$AI_DIR/localai" "\$@"
-EOF
-    chmod 755 "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
+    ln -sfn "$AI_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
   fi
 fi
 
