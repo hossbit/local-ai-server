@@ -101,10 +101,12 @@ while [ "$#" -gt 0 ]; do
         usage >&2
         exit 2
       }
+      # shellcheck disable=SC2034
       LOCALAI_DIR="$2"
       shift 2
       ;;
     --dir=*)
+      # shellcheck disable=SC2034
       LOCALAI_DIR="${1#--dir=}"
       shift
       ;;
