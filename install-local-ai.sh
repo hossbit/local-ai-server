@@ -112,33 +112,6 @@ install_system_dependencies() {
   fi
 }
 
-select_llama_cpp_asset_regex() {
-  case "$LLAMA_CPP_BACKEND" in
-    cpu)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
-      ;;
-    vulkan)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_VULKAN_ASSET_RE"
-      ;;
-    rocm)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_ROCM_ASSET_RE"
-      ;;
-    openvino)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_OPENVINO_ASSET_RE"
-      ;;
-    sycl-fp16)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP16_ASSET_RE"
-      ;;
-    sycl-fp32|sycl)
-      LLAMA_CPP_BACKEND="sycl-fp32"
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
-      ;;
-    *)
-      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
-      ;;
-  esac
-}
-
 resolve_llama_cpp_url() {
   log "Finding llama.cpp $LLAMA_CPP_VERSION asset for backend: $LLAMA_CPP_BACKEND"
   LLAMA_CPP_JSON="$(github_api_get "$LLAMA_CPP_RELEASE_API")"

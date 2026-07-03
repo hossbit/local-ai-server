@@ -39,6 +39,17 @@ LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
 CONFIG_FILE="$CONF_DIR/$LOCALAI_CONFIG_FILE"
 resolve_llama_swap_paths
 
+fail_start() {
+  local message="$1"
+
+  if pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
+    kill "$PID" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE" "$PID_START_FILE"
+  echo "Error: $message. See $LOG_FILE" >&2
+  exit 1
+}
+
 mkdir -p "$CONF_DIR" "$AI_DIR/$LOCALAI_LOGS_SUBDIR"
 
 if [ -z "$LLAMA_SWAP_BIN" ]; then
@@ -91,9 +102,7 @@ process_start_time "$PID" > "$PID_START_FILE"
 
 for _ in {1..30}; do
   if ! pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
-    rm -f "$PID_FILE" "$PID_START_FILE"
-    echo "Error: llama-swap failed to start. See $LOG_FILE" >&2
-    exit 1
+    fail_start "llama-swap failed to start"
   fi
   if command -v curl >/dev/null 2>&1 &&
     curl --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
@@ -104,8 +113,7 @@ done
 
 if ! command -v curl >/dev/null 2>&1 ||
   ! curl --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
-  echo "Error: llama-swap started but API did not become ready at http://${LOCALAI_LISTEN_HOST}:${PORT}/running. See $LOG_FILE" >&2
-  exit 1
+  fail_start "llama-swap started but API did not become ready at http://${LOCALAI_LISTEN_HOST}:${PORT}/running"
 fi
 
 echo "LocalAI started at http://${LOCALAI_LISTEN_HOST}:${PORT} (PID $PID)"

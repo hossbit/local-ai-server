@@ -41,6 +41,12 @@ REMOVE_LLAMA_SWAP=0
 FORCE=0
 
 usage() {
+  local usage_ai_dir usage_bin_dir llama_swap_path
+
+  usage_ai_dir="$(resolve_ai_dir)"
+  usage_bin_dir="$usage_ai_dir/$LOCALAI_BIN_SUBDIR"
+  llama_swap_path="${LLAMA_SWAP_INSTALL_PATH:-$usage_bin_dir/llama-swap}"
+
   cat <<EOF
 Usage: $0 [--dir PATH] [--remove-models] [--remove-llama-swap] [--force]
 
@@ -49,7 +55,7 @@ Uninstalls the LocalAI service and helper files created by install-local-ai.sh.
 Options:
   --dir PATH           Uninstall LocalAI from PATH. Same as LOCALAI_DIR=PATH.
   --remove-models       Also delete the models directory.
-  --remove-llama-swap   Also delete $LLAMA_SWAP_INSTALL_PATH
+  --remove-llama-swap   Also delete $llama_swap_path
   --force               Do not prompt before deleting files
   -h, --help            Show this help
 EOF

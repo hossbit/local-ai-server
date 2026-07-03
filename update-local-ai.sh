@@ -101,43 +101,6 @@ resolve_localai_source_dir() {
   [ -x "$LOCALAI_SOURCE_DIR/localai" ] || fail "downloaded LocalAI source is missing localai"
 }
 
-select_llama_cpp_asset_regex() {
-  if [ -z "$LLAMA_CPP_BACKEND" ]; then
-    if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
-      LLAMA_CPP_BACKEND="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
-    elif [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
-      LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
-    else
-      LLAMA_CPP_BACKEND="$LOCALAI_DEFAULT_BACKEND"
-    fi
-  fi
-
-  case "$LLAMA_CPP_BACKEND" in
-    cpu)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
-      ;;
-    vulkan)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_VULKAN_ASSET_RE"
-      ;;
-    rocm)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_ROCM_ASSET_RE"
-      ;;
-    openvino)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_OPENVINO_ASSET_RE"
-      ;;
-    sycl-fp16)
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP16_ASSET_RE"
-      ;;
-    sycl-fp32|sycl)
-      LLAMA_CPP_BACKEND="sycl-fp32"
-      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
-      ;;
-    *)
-      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
-      ;;
-  esac
-}
-
 has_user_service() {
   command -v systemctl >/dev/null 2>&1 &&
     systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
@@ -228,7 +191,7 @@ BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
 LIB_DIR="$AI_DIR/$LOCALAI_LIB_SUBDIR"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 resolve_llama_swap_paths
-select_llama_cpp_asset_regex
+select_llama_cpp_asset_regex --detect-installed
 
 ###############################################################################
 # PREPARE WORKSPACE
@@ -326,7 +289,7 @@ printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LL
 NEED_CPP=1
 NEED_SWAP=1
 if [ -n "$CURRENT_LLAMA_CPP" ]; then
-  if [ "$LLAMA_CPP_TAG" = "$CURRENT_LLAMA_CPP" ]; then
+  if llama_cpp_versions_match "$LLAMA_CPP_TAG" "$CURRENT_LLAMA_CPP"; then
     NEED_CPP=0
   fi
 fi

@@ -57,13 +57,18 @@ verify_release_asset() {
   local digest="$2"
   local label="$3"
 
+  if [ "${LOCALAI_SKIP_DIGEST:-0}" = "1" ]; then
+    echo "Warning: skipping checksum verification for $label because LOCALAI_SKIP_DIGEST=1." >&2
+    return 0
+  fi
+
   case "$digest" in
     sha256:*)
       printf '%s  %s\n' "${digest#sha256:}" "$file" | sha256sum -c - >/dev/null ||
         fail "$label checksum verification failed"
       ;;
     *)
-      fail "missing sha256 digest for $label release asset"
+      fail "missing sha256 digest for $label release asset. If you are pinning an older release before GitHub asset digests were available, rerun with LOCALAI_SKIP_DIGEST=1 to install without checksum verification."
       ;;
   esac
 }
@@ -82,6 +87,51 @@ download_verified_asset() {
   verify_release_asset "$output" "$digest" "$label"
 }
 
+select_llama_cpp_asset_regex() {
+  if [ "${1:-}" = "--detect-installed" ] && [ -z "$LLAMA_CPP_BACKEND" ]; then
+    if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+      LLAMA_CPP_BACKEND="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+    elif [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
+      LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
+    else
+      LLAMA_CPP_BACKEND="$LOCALAI_DEFAULT_BACKEND"
+    fi
+  fi
+
+  LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
+  case "$LLAMA_CPP_BACKEND" in
+    cpu)
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
+      ;;
+    vulkan)
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_VULKAN_ASSET_RE"
+      ;;
+    rocm)
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_ROCM_ASSET_RE"
+      ;;
+    openvino)
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_OPENVINO_ASSET_RE"
+      ;;
+    sycl-fp16)
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP16_ASSET_RE"
+      ;;
+    sycl-fp32|sycl)
+      LLAMA_CPP_BACKEND="sycl-fp32"
+      LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
+      ;;
+    *)
+      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
+      ;;
+  esac
+}
+
+llama_cpp_versions_match() {
+  local latest="$1"
+  local current="$2"
+
+  [ -n "$current" ] && [ "${latest#b}" = "${current#b}" ]
+}
+
 config_assignment_value() {
   local key="$1"
   local file="$2"
@@ -90,7 +140,8 @@ config_assignment_value() {
   awk -F= -v key="$key" '
     $1 == key {
       value = substr($0, index($0, "=") + 1)
-      sub(/[[:space:]]*#.*/, "", value)
+      # Preserve literal # characters inside values such as
+      # LOCALAI_EXTRA_LLAMA_ARGS; installed configs write preserved values quoted.
       gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", value)
       print value
     }
