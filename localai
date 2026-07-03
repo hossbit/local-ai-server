@@ -314,7 +314,8 @@ load_cmd() {
 }
 
 running_models() {
-  curl --max-time 10 -fsS "$(api_base_url)/running" | jq -r '.running[]?'
+  curl --max-time 10 -fsS "$(api_base_url)/running" |
+    jq -r '.running[]? | if type == "object" then .model // .id // .name // empty else . end'
 }
 
 url_encode() {
