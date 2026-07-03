@@ -36,6 +36,38 @@ N_GPU_LAYERS="${N_GPU_LAYERS:-$LOCALAI_N_GPU_LAYERS}"
 THREADS="${THREADS:-$LOCALAI_THREADS}"
 CACHE_TYPE_K="${CACHE_TYPE_K:-$LOCALAI_CACHE_TYPE_K}"
 CACHE_TYPE_V="${CACHE_TYPE_V:-$LOCALAI_CACHE_TYPE_V}"
+PARALLEL="${PARALLEL:-$LOCALAI_PARALLEL}"
+BATCH_SIZE="${BATCH_SIZE:-$LOCALAI_BATCH_SIZE}"
+UBATCH_SIZE="${UBATCH_SIZE:-$LOCALAI_UBATCH_SIZE}"
+FLASH_ATTN="${FLASH_ATTN:-$LOCALAI_FLASH_ATTN}"
+JINJA="${JINJA:-$LOCALAI_JINJA}"
+MLOCK="${MLOCK:-$LOCALAI_MLOCK}"
+NO_MMAP="${NO_MMAP:-$LOCALAI_NO_MMAP}"
+EXTRA_LLAMA_ARGS="${EXTRA_LLAMA_ARGS:-$LOCALAI_EXTRA_LLAMA_ARGS}"
+
+validate_optional_positive_integer() {
+  local name="$1"
+  local value="$2"
+
+  [ -z "$value" ] && return 0
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || ((value < 1)); then
+    echo "Error: $name must be a positive integer when set." >&2
+    exit 1
+  fi
+}
+
+validate_bool() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    0|1) ;;
+    *)
+      echo "Error: $name must be 0 or 1." >&2
+      exit 1
+      ;;
+  esac
+}
 
 if ! [[ "$CTX_SIZE" =~ ^[0-9]+$ ]] || ((CTX_SIZE < 1)); then
   echo "Error: CTX_SIZE must be a positive integer." >&2
@@ -52,6 +84,39 @@ if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+validate_optional_positive_integer PARALLEL "$PARALLEL"
+validate_optional_positive_integer BATCH_SIZE "$BATCH_SIZE"
+validate_optional_positive_integer UBATCH_SIZE "$UBATCH_SIZE"
+validate_bool FLASH_ATTN "$FLASH_ATTN"
+validate_bool JINJA "$JINJA"
+validate_bool MLOCK "$MLOCK"
+validate_bool NO_MMAP "$NO_MMAP"
+
+case "$EXTRA_LLAMA_ARGS" in
+  *$'\n'*|*$'\r'*)
+    echo "Error: EXTRA_LLAMA_ARGS must be a single line." >&2
+    exit 1
+    ;;
+esac
+
+COMMON_EXTRA_ARGS=""
+[ -z "$PARALLEL" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --parallel $PARALLEL"
+[ -z "$BATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --batch-size $BATCH_SIZE"
+[ -z "$UBATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --ubatch-size $UBATCH_SIZE"
+[ "$FLASH_ATTN" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --flash-attn"
+[ "$JINJA" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --jinja"
+[ "$MLOCK" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --mlock"
+[ "$NO_MMAP" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --no-mmap"
+[ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      $EXTRA_LLAMA_ARGS"
+
 mkdir -p "$MODELS_DIR"
 
 cat > "$CONFIG" <<CFG
@@ -64,14 +129,14 @@ CFG
 MODEL_COUNT=0
 for MODEL in "$MODELS_DIR"/*.gguf; do
   [ -f "$MODEL" ] || continue
-  NAME=$(basename "$MODEL" .gguf)
-  EXTRA_ARGS=""
+  NAME="$(basename "$MODEL" .gguf)"
+  MODEL_EXTRA_ARGS=""
   case "${NAME,,}" in
     *qwen3*embedding*)
-      EXTRA_ARGS="--embeddings --pooling last"
+      MODEL_EXTRA_ARGS="--embeddings --pooling last"
       ;;
     *embedding*|*embed*|*bge*|*e5*)
-      EXTRA_ARGS="--embeddings"
+      MODEL_EXTRA_ARGS="--embeddings"
       ;;
   esac
   if [[ "$NAME" == *['"$`\']* ]]; then
@@ -88,12 +153,13 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
       "$BIN"
       --port \${PORT}
       --model "$MODEL"
-      $EXTRA_ARGS
+      $MODEL_EXTRA_ARGS
       --n-gpu-layers $N_GPU_LAYERS
       -t $THREADS
       --ctx-size $CTX_SIZE
       --cache-type-k $CACHE_TYPE_K
       --cache-type-v $CACHE_TYPE_V
+$COMMON_EXTRA_ARGS
 
 MODELCFG
 done

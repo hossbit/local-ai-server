@@ -230,6 +230,7 @@ Advanced forms:
 | `localai update --no-start` | Update and leave the service stopped. |
 | `LLAMA_CPP_BACKEND=cpu localai update` | Switch backend during update. |
 | `LOCALAI_CTX_SIZE=8192 LOCALAI_N_GPU_LAYERS=20 localai start` | Override runtime settings for one start. |
+| `LOCALAI_FLASH_ATTN=1 LOCALAI_PARALLEL=2 localai start` | Enable optional llama-server tuning for one start. |
 | `localai uninstall --remove-models` | Also remove downloaded models. |
 | `localai uninstall --dir ~/my-ai` | Uninstall from a custom directory. |
 | `localai uninstall --remove-llama-swap` | Also remove the shared `llama-swap` binary. |
@@ -255,11 +256,32 @@ Default runtime settings are:
 
 - Vulkan and other GPU-capable backends: context size `16384`, GPU layers `8`
 - CPU backend: context size `4096`, GPU layers `0`
+- Threads: `6`
 - KV cache: `q4_0`
+- Jinja chat templates: enabled
+- Flash attention, mlock, no-mmap, parallel, batch size, and ubatch size: disabled unless configured
 - Idle model timeout: `900` seconds
 
-Override context size or GPU layers for one start with the start command form
-shown in the service command table.
+Useful llama-server tuning variables:
+
+| Variable | Effect |
+| --- | --- |
+| `LOCALAI_CTX_SIZE` | Sets `--ctx-size`. |
+| `LOCALAI_N_GPU_LAYERS` | Sets `--n-gpu-layers`. |
+| `LOCALAI_THREADS` | Sets `-t`. |
+| `LOCALAI_CACHE_TYPE_K` / `LOCALAI_CACHE_TYPE_V` | Set KV cache quantization. |
+| `LOCALAI_PARALLEL` | Adds `--parallel` when set. |
+| `LOCALAI_BATCH_SIZE` | Adds `--batch-size` when set. |
+| `LOCALAI_UBATCH_SIZE` | Adds `--ubatch-size` when set. |
+| `LOCALAI_FLASH_ATTN` | Adds `--flash-attn` when set to `1`. |
+| `LOCALAI_JINJA` | Adds `--jinja` when set to `1`; default is `1`. |
+| `LOCALAI_MLOCK` | Adds `--mlock` when set to `1`. |
+| `LOCALAI_NO_MMAP` | Adds `--no-mmap` when set to `1`. |
+| `LOCALAI_EXTRA_LLAMA_ARGS` | Appends extra single-line llama-server flags. |
+
+Override any of these for one start with the start command form shown in the
+service command table, or edit `~/ai/localai.conf` to make the setting
+persistent.
 
 ## Troubleshooting
 
