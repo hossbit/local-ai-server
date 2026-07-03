@@ -3,13 +3,18 @@
 
 expand_path() {
   local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
+
+  case "$value" in
+    "~")
+      printf '%s\n' "$HOME"
+      ;;
+    "~/"*)
+      printf '%s/%s\n' "$HOME" "${value:2}"
+      ;;
+    *)
+      printf '%s\n' "$value"
+      ;;
+  esac
 }
 
 resolve_ai_dir() {

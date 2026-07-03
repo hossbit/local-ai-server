@@ -139,10 +139,12 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
   elif model_is_embedding_name "$NAME"; then
       MODEL_EXTRA_ARGS="--embeddings"
   fi
-  if [[ "$NAME" == *['"$`\']* ]]; then
+  case "$NAME" in
+    *\"*|*"'"*|*'`'*|*\\*)
     echo "Skipping unsupported model filename: $(basename "$MODEL")" >&2
     continue
-  fi
+      ;;
+  esac
   MODEL_COUNT=$((MODEL_COUNT + 1))
 
   cat >> "$CONFIG" <<MODELCFG

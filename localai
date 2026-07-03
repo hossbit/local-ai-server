@@ -184,7 +184,9 @@ check_cmd() {
 
   if [ "$chat" -eq 1 ]; then
     model="$(jq -r '.data[]?.id | select((ascii_downcase | test("qwen3.*embedding|embedding|embed|bge|(^e5-)|[-_.]e5([-_.]|$)")) | not)' <<<"$models_json" | head -n1)"
-    [ -n "$model" ] && [ "$model" != "null" ] || fail "no model is available for chat check"
+    if [ -z "$model" ] || [ "$model" = "null" ]; then
+      fail "no model is available for chat check"
+    fi
     echo
     echo "Chat check:"
     curl --max-time 120 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/chat/completions" \
