@@ -199,6 +199,8 @@ logs_cmd() {
 }
 
 models_cmd() {
+  local loaded_models="" loaded_available=0 loaded_checked=0 file model status
+
   if [ ! -d "$MODELS_DIR" ]; then
     echo "Models directory does not exist: $MODELS_DIR"
     return 0
@@ -209,7 +211,34 @@ models_cmd() {
     return 0
   fi
 
-  find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -printf '%f\n' | sort
+  if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    loaded_checked=1
+    if loaded_models="$(running_models 2>/dev/null)"; then
+      loaded_available=1
+    fi
+  fi
+
+  while IFS= read -r file; do
+    model="${file%.gguf}"
+    status=""
+    if [ "$loaded_available" -eq 1 ]; then
+      if printf '%s\n' "$loaded_models" | grep -Fxq "$model" ||
+        printf '%s\n' "$loaded_models" | grep -Fxq "$file"; then
+        status=" [loaded]"
+      else
+        status=" [not loaded]"
+      fi
+    fi
+    printf '%s%s\n' "$file" "$status"
+  done < <(find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -printf '%f\n' | sort)
+
+  if [ "$loaded_checked" -eq 1 ] && [ "$loaded_available" -eq 0 ]; then
+    echo
+    echo "Loaded state unavailable: API is not reachable at $(api_base_url)/running"
+  elif [ "$loaded_checked" -eq 0 ]; then
+    echo
+    echo "Loaded state unavailable: curl and jq are required"
+  fi
 }
 
 api_base_url() {

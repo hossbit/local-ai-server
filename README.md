@@ -213,7 +213,7 @@ Most users only need these:
 | `localai status` | Show service, process, API, and port status. |
 | `localai check` | Check the API and model list. |
 | `localai logs` | Follow LocalAI logs. |
-| `localai models` | List installed `.gguf` models. |
+| `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
 | `localai load MODEL` | Warm one model, for example `localai load Qwen2.5-Coder-7B-Instruct-Q4_K_M`. |
 | `localai unload MODEL` | Release one loaded model. |
 | `localai unload all` | Release all loaded models. |
