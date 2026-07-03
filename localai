@@ -4,8 +4,16 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 expand_path() {
   local value="$1"
@@ -21,6 +29,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -30,9 +40,10 @@ resolve_ai_dir() {
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
-PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
+PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
 SERVICE_UNIT="${LOCALAI_SERVICE_NAME%.service}"
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
 
@@ -83,8 +94,8 @@ pid_status() {
   local pid command port
 
   port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
-  if [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
-    pid="$(<"$AI_DIR/$LOCALAI_PID_FILE")"
+  if [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; then
+    pid="$(<"$CONF_DIR/$LOCALAI_PID_FILE")"
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
       command="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
       if [[ "$command" == *llama-swap* ]]; then
@@ -93,7 +104,7 @@ pid_status() {
         echo "LocalAI process: stale PID file; PID $pid belongs to ${command:-another process}"
       fi
     else
-      echo "LocalAI process: not running; stale PID file exists at $AI_DIR/$LOCALAI_PID_FILE"
+      echo "LocalAI process: not running; stale PID file exists at $CONF_DIR/$LOCALAI_PID_FILE"
     fi
   else
     echo "LocalAI process: not running (no PID file)"
@@ -119,16 +130,16 @@ service_cmd() {
 
   case "$action" in
     start)
-      [ -x "$AI_DIR/start.sh" ] || fail "missing helper: $AI_DIR/start.sh"
+      [ -x "$BIN_DIR/start.sh" ] || fail "missing helper: $BIN_DIR/start.sh"
       print_service_details "helper script"
-      echo "Running: $AI_DIR/start.sh"
-      "$AI_DIR/start.sh"
+      echo "Running: $BIN_DIR/start.sh"
+      "$BIN_DIR/start.sh"
       ;;
     stop)
-      [ -x "$AI_DIR/stop.sh" ] || fail "missing helper: $AI_DIR/stop.sh"
+      [ -x "$BIN_DIR/stop.sh" ] || fail "missing helper: $BIN_DIR/stop.sh"
       print_service_details "helper script"
-      echo "Running: $AI_DIR/stop.sh"
-      "$AI_DIR/stop.sh"
+      echo "Running: $BIN_DIR/stop.sh"
+      "$BIN_DIR/stop.sh"
       ;;
     restart)
       service_cmd stop
@@ -358,9 +369,9 @@ unload_cmd() {
 }
 
 update_cmd() {
-  local updater="$AI_DIR/update-local-ai.sh"
+  local updater="$BIN_DIR/update-local-ai.sh"
   [ -x "$updater" ] || updater="$SCRIPT_DIR/update-local-ai.sh"
-  [ -x "$updater" ] || fail "missing updater: $AI_DIR/update-local-ai.sh"
+  [ -x "$updater" ] || fail "missing updater: $BIN_DIR/update-local-ai.sh"
   "$updater" "$@"
 }
 
@@ -374,8 +385,8 @@ version_cmd() {
     echo "llama.cpp: not installed"
   fi
 
-  if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
-    echo "llama.cpp backend: $(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
+  if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+    echo "llama.cpp backend: $(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
   fi
 
   if command -v llama-swap >/dev/null 2>&1; then
@@ -386,9 +397,9 @@ version_cmd() {
 }
 
 uninstall_cmd() {
-  local uninstaller="$AI_DIR/uninstall-local-ai.sh"
+  local uninstaller="$BIN_DIR/uninstall-local-ai.sh"
   [ -x "$uninstaller" ] || uninstaller="$SCRIPT_DIR/uninstall-local-ai.sh"
-  [ -x "$uninstaller" ] || fail "missing uninstaller: $AI_DIR/uninstall-local-ai.sh"
+  [ -x "$uninstaller" ] || fail "missing uninstaller: $BIN_DIR/uninstall-local-ai.sh"
   "$uninstaller" "$@"
 }
 

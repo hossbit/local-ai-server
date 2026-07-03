@@ -151,13 +151,13 @@ Qwen2.5-Coder-7B-Instruct-Q4_K_M
 Read the selected port:
 
 ```bash
-PORT=$(cat ~/ai/port)
+PORT=$(cat ~/ai/conf/port)
 ```
 
 For a custom install directory:
 
 ```bash
-PORT=$(cat ~/my-ai/port)
+PORT=$(cat ~/my-ai/conf/port)
 ```
 
 List available models:
@@ -187,7 +187,7 @@ Python with the OpenAI SDK:
 from pathlib import Path
 from openai import OpenAI
 
-port = Path.home().joinpath("ai/port").read_text().strip()
+port = Path.home().joinpath("ai/conf/port").read_text().strip()
 client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="local")
 
 response = client.chat.completions.create(
@@ -241,16 +241,16 @@ Shared defaults live in:
 
 ```text
 localai.conf          # source default
-~/ai/localai.conf     # installed copy
+~/ai/conf/localai.conf # installed copy
 ```
 
-This file contains install paths, service names, port settings, logs, PID files,
-and llama.cpp runtime defaults. Environment variables still override the config
-for one command.
+This file contains install paths, service names, port settings, and llama.cpp
+runtime defaults. Environment variables still override the config for one
+command.
 
-`rebuild-config.sh` creates `config.yaml` from every `.gguf` file in the
-install directory's `models` folder. It runs automatically whenever the server
-starts.
+`bin/rebuild-config.sh` creates `conf/config.yaml` from every `.gguf` file in
+the install directory's `models` folder. It runs automatically whenever the
+server starts.
 
 Default runtime settings are:
 
@@ -280,7 +280,7 @@ Useful llama-server tuning variables:
 | `LOCALAI_EXTRA_LLAMA_ARGS` | Appends extra single-line llama-server flags. |
 
 Override any of these for one start with the start command form shown in the
-service command table, or edit `~/ai/localai.conf` to make the setting
+service command table, or edit `~/ai/conf/localai.conf` to make the setting
 persistent.
 
 ## Troubleshooting
@@ -288,8 +288,8 @@ persistent.
 Check the configured port and models:
 
 ```bash
-cat ~/ai/port
-curl "http://127.0.0.1:$(cat ~/ai/port)/v1/models"
+cat ~/ai/conf/port
+curl "http://127.0.0.1:$(cat ~/ai/conf/port)/v1/models"
 ```
 
 Replace `~/ai` with your selected install directory if needed.

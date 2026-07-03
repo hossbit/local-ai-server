@@ -3,8 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 expand_path() {
   local value="$1"
@@ -20,6 +28,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -28,8 +38,9 @@ resolve_ai_dir() {
 }
 
 AI_DIR="$(resolve_ai_dir)"
-PID_FILE="$AI_DIR/$LOCALAI_PID_FILE"
-PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
+PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
+PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
 
 api_base_url() {
   local port

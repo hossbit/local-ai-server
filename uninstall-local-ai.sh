@@ -3,11 +3,20 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 AI_DIR=""
 BIN_DIR=""
+CONF_DIR=""
 MODELS_DIR=""
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
 LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
@@ -29,6 +38,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -129,6 +140,7 @@ done
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 
 REMOVE_TARGETS=()
@@ -143,6 +155,7 @@ fi
 for TARGET in \
   "$SERVICE_FILE" \
   "$BIN_DIR" \
+  "$CONF_DIR" \
   "$AI_DIR/start.sh" \
   "$AI_DIR/stop.sh" \
   "$AI_DIR/rebuild-config.sh" \
@@ -241,6 +254,9 @@ if has_user_service; then
   log "Stopping and disabling systemd user service"
   systemctl --user stop "$LOCALAI_SERVICE_NAME" || warn "could not stop $LOCALAI_SERVICE_NAME"
   systemctl --user disable "$LOCALAI_SERVICE_NAME" || warn "could not disable $LOCALAI_SERVICE_NAME"
+elif [ -x "$BIN_DIR/stop.sh" ]; then
+  log "Stopping LocalAI with helper script"
+  "$BIN_DIR/stop.sh" || warn "could not stop LocalAI with $BIN_DIR/stop.sh"
 elif [ -x "$AI_DIR/stop.sh" ]; then
   log "Stopping LocalAI with helper script"
   "$AI_DIR/stop.sh" || warn "could not stop LocalAI with $AI_DIR/stop.sh"
@@ -263,6 +279,7 @@ fi
 log "Removing LocalAI files"
 
 remove_if_exists "$BIN_DIR"
+remove_if_exists "$CONF_DIR"
 remove_if_exists "$AI_DIR/start.sh"
 remove_if_exists "$AI_DIR/stop.sh"
 remove_if_exists "$AI_DIR/rebuild-config.sh"

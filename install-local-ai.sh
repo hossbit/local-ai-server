@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
+CONF_DIR=""
 MODELS_DIR=""
 LOCALAI_CLI_PATH=""
 LOCALAI_CLI_LINK=""
@@ -200,7 +201,7 @@ config_assignment_value() {
 }
 
 append_runtime_tuning() {
-  local installed_conf="$AI_DIR/localai.conf"
+  local installed_conf="$CONF_DIR/localai.conf"
   local source_conf="$1"
   local key value had_ctx=0 had_gpu=0
 
@@ -226,12 +227,16 @@ append_runtime_tuning() {
 parse_args "$@"
 select_ai_dir
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
-LOCALAI_CLI_PATH="$AI_DIR/$LOCALAI_CLI_NAME"
+LOCALAI_CLI_PATH="$BIN_DIR/$LOCALAI_CLI_NAME"
 LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 select_llama_cpp_asset_regex
 
-mkdir -p "$AI_DIR" "$BIN_DIR" "$MODELS_DIR"
+mkdir -p "$AI_DIR" "$BIN_DIR" "$CONF_DIR" "$MODELS_DIR"
+if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
+  cp "$AI_DIR/$LOCALAI_PORT_FILE" "$CONF_DIR/$LOCALAI_PORT_FILE"
+fi
 
 ###############################################################################
 # INSTALL SYSTEM DEPENDENCIES
@@ -261,7 +266,10 @@ curl -4 -fL --retry 3 --retry-delay 2 \
   "$LLAMA_SWAP_URL" \
   || fail "failed to download llama-swap"
 
-if [ -x "$AI_DIR/stop.sh" ] && [ -f "$AI_DIR/$LOCALAI_PID_FILE" ]; then
+if [ -x "$BIN_DIR/stop.sh" ] && [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; then
+  log "Stopping the existing LocalAI service"
+  "$BIN_DIR/stop.sh"
+elif [ -x "$AI_DIR/stop.sh" ] && { [ -f "$AI_DIR/$LOCALAI_PID_FILE" ] || [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; }; then
   log "Stopping the existing LocalAI service"
   "$AI_DIR/stop.sh"
 fi
@@ -293,7 +301,7 @@ exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
 
 install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
-echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/$LOCALAI_BACKEND_FILE"
+echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
 verify_llama_server
 cleanup_bin_artifacts
 
@@ -319,12 +327,12 @@ sudo install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
 # SELECT API PORT
 ###############################################################################
 
-if [ ! -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
+if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ]; then
   PORT="$LOCALAI_DEFAULT_PORT"
   while ss -ltn | awk '{print $4}' | grep -q ":${PORT}$"; do
     PORT=$((PORT + 1))
   done
-  echo "$PORT" > "$AI_DIR/$LOCALAI_PORT_FILE"
+  echo "$PORT" > "$CONF_DIR/$LOCALAI_PORT_FILE"
 fi
 
 ###############################################################################
@@ -345,26 +353,36 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=$AI_DIR/start.sh
-ExecStop=$AI_DIR/stop.sh
+ExecStart=$BIN_DIR/start.sh
+ExecStop=$BIN_DIR/stop.sh
 
 [Install]
 WantedBy=default.target
 EOF
 
-install -m755 "$SCRIPT_DIR/start.sh" "$AI_DIR/start.sh"
-install -m755 "$SCRIPT_DIR/stop.sh" "$AI_DIR/stop.sh"
-install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$AI_DIR/rebuild-config.sh"
-install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$AI_DIR/update-local-ai.sh"
-install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$AI_DIR/uninstall-local-ai.sh"
+install -m755 "$SCRIPT_DIR/start.sh" "$BIN_DIR/start.sh"
+install -m755 "$SCRIPT_DIR/stop.sh" "$BIN_DIR/stop.sh"
+install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$BIN_DIR/rebuild-config.sh"
+install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$BIN_DIR/update-local-ai.sh"
+install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$BIN_DIR/uninstall-local-ai.sh"
 install -m755 "$SCRIPT_DIR/localai" "$LOCALAI_CLI_PATH"
-PREVIOUS_LOCALAI_CONF="$AI_DIR/localai.conf"
+PREVIOUS_LOCALAI_CONF="$CONF_DIR/localai.conf"
 if [ -f "$PREVIOUS_LOCALAI_CONF" ]; then
   cp "$PREVIOUS_LOCALAI_CONF" "$DOWNLOAD_DIR/localai.conf.previous"
   PREVIOUS_LOCALAI_CONF="$DOWNLOAD_DIR/localai.conf.previous"
+elif [ -f "$AI_DIR/localai.conf" ]; then
+  cp "$AI_DIR/localai.conf" "$DOWNLOAD_DIR/localai.conf.previous"
+  PREVIOUS_LOCALAI_CONF="$DOWNLOAD_DIR/localai.conf.previous"
 fi
-install -m644 "$SCRIPT_DIR/localai.conf" "$AI_DIR/localai.conf"
+install -m644 "$SCRIPT_DIR/localai.conf" "$CONF_DIR/localai.conf"
 append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
+
+for OLD_HELPER in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh "$LOCALAI_CLI_NAME"; do
+  rm -f -- "$AI_DIR/$OLD_HELPER"
+done
+for OLD_CONFIG in localai.conf "$LOCALAI_BACKEND_FILE" "$LOCALAI_CONFIG_FILE" "$LOCALAI_PORT_FILE" "$LOCALAI_PID_FILE"; do
+  rm -f -- "$AI_DIR/$OLD_CONFIG"
+done
 
 ln -sfn "$LOCALAI_CLI_PATH" "$LOCALAI_CLI_LINK"
 
@@ -427,21 +445,21 @@ echo
 echo "Helper scripts:"
 echo
 echo "  Start manually:"
-echo "    $AI_DIR/start.sh"
+echo "    $BIN_DIR/start.sh"
 echo
 echo "  Stop manually:"
-echo "    $AI_DIR/stop.sh"
+echo "    $BIN_DIR/stop.sh"
 echo
 echo "  Rebuild config:"
-echo "    $AI_DIR/rebuild-config.sh"
+echo "    $BIN_DIR/rebuild-config.sh"
 echo
 echo "API endpoint:"
-echo "  http://localhost:$(cat "$AI_DIR/$LOCALAI_PORT_FILE")"
+echo "  http://localhost:$(cat "$CONF_DIR/$LOCALAI_PORT_FILE")"
 echo
 echo "Service file:"
 echo "  $LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
-echo "  ExecStart=$AI_DIR/start.sh"
-echo "  ExecStop=$AI_DIR/stop.sh"
+echo "  ExecStart=$BIN_DIR/start.sh"
+echo "  ExecStop=$BIN_DIR/stop.sh"
 echo
 echo "Models directory:"
 echo "  $MODELS_DIR"

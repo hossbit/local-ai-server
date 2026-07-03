@@ -3,11 +3,20 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 AI_DIR=""
 BIN_DIR=""
+CONF_DIR=""
 LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-}"
 LLAMA_CPP_ASSET_RE=""
 LOCALAI_SOURCE_DIR=""
@@ -47,6 +56,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -71,7 +82,7 @@ localai_archive_url() {
 resolve_localai_source_dir() {
   local archive_file extracted
 
-  if [ "$SCRIPT_DIR" != "$AI_DIR" ]; then
+  if [ -f "$SCRIPT_DIR/install-local-ai.sh" ] && [ -f "$SCRIPT_DIR/localai.conf" ]; then
     LOCALAI_SOURCE_DIR="$SCRIPT_DIR"
     return
   fi
@@ -98,7 +109,9 @@ resolve_localai_source_dir() {
 
 select_llama_cpp_asset_regex() {
   if [ -z "$LLAMA_CPP_BACKEND" ]; then
-    if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
+    if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+      LLAMA_CPP_BACKEND="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+    elif [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
       LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
     else
       LLAMA_CPP_BACKEND="$LOCALAI_DEFAULT_BACKEND"
@@ -140,6 +153,9 @@ stop_localai() {
   if has_user_service; then
     log "Stopping LocalAI service"
     systemctl --user stop "$LOCALAI_SERVICE_NAME"
+  elif [ -x "$BIN_DIR/stop.sh" ]; then
+    log "Stopping LocalAI"
+    "$BIN_DIR/stop.sh"
   elif [ -x "$AI_DIR/stop.sh" ]; then
     log "Stopping LocalAI"
     "$AI_DIR/stop.sh"
@@ -153,6 +169,9 @@ start_localai() {
   if has_user_service; then
     log "Starting LocalAI service"
     systemctl --user start "$LOCALAI_SERVICE_NAME"
+  elif [ -x "$BIN_DIR/start.sh" ]; then
+    log "Starting LocalAI"
+    "$BIN_DIR/start.sh"
   elif [ -x "$AI_DIR/start.sh" ]; then
     log "Starting LocalAI"
     "$AI_DIR/start.sh"
@@ -164,10 +183,10 @@ start_localai() {
 print_current_versions() {
   echo
   echo "Current versions:"
-  if [ -f "$AI_DIR/localai.conf" ]; then
+  if [ -f "$CONF_DIR/localai.conf" ]; then
     (
       # shellcheck source=/dev/null
-      . "$AI_DIR/localai.conf"
+      . "$CONF_DIR/localai.conf"
       echo "LocalAI: $LOCALAI_VERSION"
     )
   fi
@@ -216,7 +235,7 @@ config_assignment_value() {
 }
 
 append_runtime_tuning() {
-  local installed_conf="$AI_DIR/localai.conf"
+  local installed_conf="$CONF_DIR/localai.conf"
   local source_conf="$1"
   local key value had_ctx=0 had_gpu=0
 
@@ -250,13 +269,17 @@ done
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 select_llama_cpp_asset_regex
 
 ###############################################################################
 # PREPARE WORKSPACE
 ###############################################################################
 
-mkdir -p "$AI_DIR" "$BIN_DIR"
+mkdir -p "$AI_DIR" "$BIN_DIR" "$CONF_DIR"
+if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
+  cp "$AI_DIR/$LOCALAI_PORT_FILE" "$CONF_DIR/$LOCALAI_PORT_FILE"
+fi
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 resolve_localai_source_dir
@@ -266,24 +289,50 @@ resolve_localai_source_dir
 ###############################################################################
 
 if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
-  PREVIOUS_LOCALAI_CONF="$AI_DIR/localai.conf"
+  PREVIOUS_LOCALAI_CONF="$CONF_DIR/localai.conf"
   if [ -f "$PREVIOUS_LOCALAI_CONF" ]; then
     cp "$PREVIOUS_LOCALAI_CONF" "$TMP_DIR/localai.conf.previous"
+    PREVIOUS_LOCALAI_CONF="$TMP_DIR/localai.conf.previous"
+  elif [ -f "$AI_DIR/localai.conf" ]; then
+    cp "$AI_DIR/localai.conf" "$TMP_DIR/localai.conf.previous"
     PREVIOUS_LOCALAI_CONF="$TMP_DIR/localai.conf.previous"
   fi
   for SCRIPT in localai start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh; do
     if [ -f "$LOCALAI_SOURCE_DIR/$SCRIPT" ]; then
-      install -m755 "$LOCALAI_SOURCE_DIR/$SCRIPT" "$AI_DIR/$SCRIPT"
+      install -m755 "$LOCALAI_SOURCE_DIR/$SCRIPT" "$BIN_DIR/$SCRIPT"
     fi
   done
   if [ -f "$LOCALAI_SOURCE_DIR/localai.conf" ]; then
-    install -m644 "$LOCALAI_SOURCE_DIR/localai.conf" "$AI_DIR/localai.conf"
+    install -m644 "$LOCALAI_SOURCE_DIR/localai.conf" "$CONF_DIR/localai.conf"
     append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
   fi
-  if [ -x "$AI_DIR/localai" ]; then
+  if [ -x "$BIN_DIR/localai" ]; then
     mkdir -p "$LOCALAI_USER_BIN_DIR"
-    ln -sfn "$AI_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
+    ln -sfn "$BIN_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
   fi
+  mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
+  cat > "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" <<EOF
+[Unit]
+Description=LocalAI Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$BIN_DIR/start.sh
+ExecStop=$BIN_DIR/stop.sh
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  for OLD_HELPER in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh "$LOCALAI_CLI_NAME"; do
+    rm -f -- "$AI_DIR/$OLD_HELPER"
+  done
+  for OLD_CONFIG in localai.conf "$LOCALAI_BACKEND_FILE" "$LOCALAI_CONFIG_FILE" "$LOCALAI_PORT_FILE" "$LOCALAI_PID_FILE"; do
+    rm -f -- "$AI_DIR/$OLD_CONFIG"
+  done
 fi
 
 ###############################################################################
@@ -322,8 +371,8 @@ CURRENT_LLAMA_SWAP=$(
     head -n1 || true
 )
 CURRENT_LLAMA_CPP_BACKEND=""
-if [ -f "$AI_DIR/$LOCALAI_BACKEND_FILE" ]; then
-  CURRENT_LLAMA_CPP_BACKEND="$(<"$AI_DIR/$LOCALAI_BACKEND_FILE")"
+if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+  CURRENT_LLAMA_CPP_BACKEND="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
 fi
 
 printf 'llama.cpp:  installed=%s latest=%s backend=%s\n' "${CURRENT_LLAMA_CPP:-none}" "$LLAMA_CPP_TAG" "$LLAMA_CPP_BACKEND"
@@ -385,7 +434,7 @@ export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
 exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
 EOF
   install -m755 "$TMP_DIR/llama-server" "$BIN_DIR/llama-server"
-  echo "$LLAMA_CPP_BACKEND" > "$AI_DIR/$LOCALAI_BACKEND_FILE"
+  echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
   verify_llama_server
 fi
 

@@ -3,8 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 expand_path() {
   local value="$1"
@@ -20,6 +28,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -28,7 +38,8 @@ resolve_ai_dir() {
 }
 
 AI_DIR="$(resolve_ai_dir)"
-CONFIG="$AI_DIR/$LOCALAI_CONFIG_FILE"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
+CONFIG="$CONF_DIR/$LOCALAI_CONFIG_FILE"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 BIN="$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server"
 CTX_SIZE="${CTX_SIZE:-$LOCALAI_CTX_SIZE}"
@@ -117,7 +128,7 @@ COMMON_EXTRA_ARGS=""
 [ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       $EXTRA_LLAMA_ARGS"
 
-mkdir -p "$MODELS_DIR"
+mkdir -p "$CONF_DIR" "$MODELS_DIR"
 
 cat > "$CONFIG" <<CFG
 healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT

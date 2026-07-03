@@ -3,8 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
+if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # shellcheck source=/dev/null
+  . "$SCRIPT_DIR/../conf/localai.conf"
+elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
+  # shellcheck source=localai.conf
+  . "$SCRIPT_DIR/localai.conf"
+else
+  echo "Error: localai.conf not found." >&2
+  exit 1
+fi
 
 expand_path() {
   local value="$1"
@@ -20,6 +28,8 @@ expand_path() {
 resolve_ai_dir() {
   if [ -n "${LOCALAI_DIR:-}" ]; then
     expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
   elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
     expand_path "$LOCALAI_DEFAULT_DIR"
   else
@@ -28,20 +38,22 @@ resolve_ai_dir() {
 }
 
 AI_DIR="$(resolve_ai_dir)"
-PORT_FILE="$AI_DIR/$LOCALAI_PORT_FILE"
-PID_FILE="$AI_DIR/$LOCALAI_PID_FILE"
+BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
+PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
+PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
-CONFIG_FILE="$AI_DIR/$LOCALAI_CONFIG_FILE"
+CONFIG_FILE="$CONF_DIR/$LOCALAI_CONFIG_FILE"
 
-mkdir -p "$AI_DIR/$LOCALAI_LOGS_SUBDIR"
+mkdir -p "$CONF_DIR" "$AI_DIR/$LOCALAI_LOGS_SUBDIR"
 
 if [ -z "$LLAMA_SWAP_BIN" ]; then
   echo "Error: llama-swap is not installed or is not in PATH." >&2
   exit 1
 fi
 
-if [ ! -x "$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server" ]; then
-  echo "Error: $AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server is missing or not executable." >&2
+if [ ! -x "$BIN_DIR/llama-server" ]; then
+  echo "Error: $BIN_DIR/llama-server is missing or not executable." >&2
   exit 1
 fi
 
@@ -67,7 +79,7 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE"
 fi
 
-"$AI_DIR/rebuild-config.sh"
+"$BIN_DIR/rebuild-config.sh"
 
 if ! find "$AI_DIR/$LOCALAI_MODELS_SUBDIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
   echo "No GGUF models found in $AI_DIR/$LOCALAI_MODELS_SUBDIR."
