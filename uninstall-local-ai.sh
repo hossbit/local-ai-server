@@ -100,6 +100,18 @@ path_exists() {
   [ -e "$1" ] || [ -L "$1" ]
 }
 
+target_is_removed_by_parent() {
+  local target="$1"
+  local remove_target
+
+  for remove_target in "${REMOVE_TARGETS[@]}"; do
+    case "$target" in
+      "$remove_target"|"$remove_target"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)
@@ -191,10 +203,10 @@ elif path_exists "$MODELS_DIR"; then
 fi
 
 if [ "$REMOVE_LLAMA_SWAP" -eq 1 ]; then
-  if path_exists "$LLAMA_SWAP_INSTALL_PATH"; then
+  if path_exists "$LLAMA_SWAP_INSTALL_PATH" && ! target_is_removed_by_parent "$LLAMA_SWAP_INSTALL_PATH"; then
     EXTRA_REMOVE_TARGETS+=("$LLAMA_SWAP_INSTALL_PATH")
   fi
-elif path_exists "$LLAMA_SWAP_INSTALL_PATH"; then
+elif path_exists "$LLAMA_SWAP_INSTALL_PATH" && ! target_is_removed_by_parent "$LLAMA_SWAP_INSTALL_PATH"; then
   KEEP_TARGETS+=("$LLAMA_SWAP_INSTALL_PATH")
 fi
 
