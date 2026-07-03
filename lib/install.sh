@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2154
+# shellcheck disable=SC2034,SC2154
 
 github_api_get() {
   local url="$1"

@@ -164,7 +164,7 @@ MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOCALAI_CLI_PATH="$BIN_DIR/$LOCALAI_CLI_NAME"
 LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 resolve_llama_swap_paths
-select_llama_cpp_asset_regex
+select_llama_cpp_asset_regex ""
 
 mkdir -p "$AI_DIR" "$BIN_DIR" "$LIB_DIR" "$CONF_DIR" "$MODELS_DIR"
 if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then

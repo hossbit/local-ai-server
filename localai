@@ -184,7 +184,9 @@ check_cmd() {
 
   if [ "$chat" -eq 1 ]; then
     while IFS= read -r candidate; do
-      [ -n "$candidate" ] && [ "$candidate" != "null" ] || continue
+      if [ -z "$candidate" ] || [ "$candidate" = "null" ]; then
+        continue
+      fi
       if ! model_is_embedding_name "$candidate"; then
         model="$candidate"
         break
