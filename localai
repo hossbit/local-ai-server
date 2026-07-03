@@ -14,29 +14,21 @@ else
   echo "Error: localai.conf not found." >&2
   exit 1
 fi
+source_localai_common() {
+  local candidate
 
-expand_path() {
-  local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
-}
+  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
+    if [ -f "$candidate" ]; then
+      # shellcheck source=/dev/null
+      . "$candidate"
+      return 0
+    fi
+  done
 
-resolve_ai_dir() {
-  if [ -n "${LOCALAI_DIR:-}" ]; then
-    expand_path "$LOCALAI_DIR"
-  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-    cd "$SCRIPT_DIR/.." && pwd
-  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    expand_path "$LOCALAI_DEFAULT_DIR"
-  else
-    printf '%s\n' "$SCRIPT_DIR"
-  fi
+  echo "Error: missing LocalAI library: common.sh" >&2
+  exit 1
 }
+source_localai_common
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
@@ -44,8 +36,11 @@ CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
 PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
+PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
+PID_START_FILE="$CONF_DIR/$LOCALAI_PID_FILE.start"
 SERVICE_UNIT="${LOCALAI_SERVICE_NAME%.service}"
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
+resolve_llama_swap_paths
 
 usage() {
   cat <<EOF
@@ -94,9 +89,9 @@ pid_status() {
   local pid command port
 
   port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
-  if [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; then
-    pid="$(<"$CONF_DIR/$LOCALAI_PID_FILE")"
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+  if [ -f "$PID_FILE" ]; then
+    pid="$(<"$PID_FILE")"
+    if pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
       command="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
       if [[ "$command" == *llama-swap* ]]; then
         echo "LocalAI process: running (llama-swap PID $pid)"
@@ -165,7 +160,7 @@ status_cmd() {
 }
 
 check_cmd() {
-  local port model chat=0
+  local port model models_json chat=0
 
   if [ "${1:-}" = "--chat" ]; then
     chat=1
@@ -182,12 +177,13 @@ check_cmd() {
 
   echo
   echo "API models:"
-  if ! curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models" | jq -r '.data[]?.id'; then
+  if ! models_json="$(curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models")"; then
     fail "API did not respond at http://${LOCALAI_LISTEN_HOST}:${port}/v1/models"
   fi
+  jq -r '.data[]?.id' <<<"$models_json"
 
   if [ "$chat" -eq 1 ]; then
-    model="$(curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models" | jq -r '.data[0]?.id')"
+    model="$(jq -r '.data[]?.id | select((ascii_downcase | test("qwen3.*embedding|embedding|embed|bge|(^e5-)|[-_.]e5([-_.]|$)")) | not)' <<<"$models_json" | head -n1)"
     [ -n "$model" ] && [ "$model" != "null" ] || fail "no model is available for chat check"
     echo
     echo "Chat check:"
@@ -253,10 +249,7 @@ models_cmd() {
 }
 
 api_base_url() {
-  local port
-
-  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
-  printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
+  api_base_url_for_port_file "$PORT_FILE"
 }
 
 require_api_tools() {
@@ -275,12 +268,7 @@ installed_model_exists() {
 }
 
 model_is_embedding() {
-  local model="${1,,}"
-
-  case "$model" in
-    *qwen3*embedding*|*embedding*|*embed*|*bge*|*e5*) return 0 ;;
-    *) return 1 ;;
-  esac
+  model_is_embedding_name "$1"
 }
 
 load_one_model() {
@@ -389,8 +377,8 @@ version_cmd() {
     echo "llama.cpp backend: $(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
   fi
 
-  if command -v llama-swap >/dev/null 2>&1; then
-    llama-swap --version 2>&1 | awk 'NR == 1 {print "llama-swap: " $0; exit}'
+  if [ -x "$LLAMA_SWAP_BIN" ]; then
+    "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print "llama-swap: " $0; exit}'
   else
     echo "llama-swap: not installed"
   fi

@@ -13,29 +13,21 @@ else
   echo "Error: localai.conf not found." >&2
   exit 1
 fi
+source_localai_common() {
+  local candidate
 
-expand_path() {
-  local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
-}
+  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
+    if [ -f "$candidate" ]; then
+      # shellcheck source=/dev/null
+      . "$candidate"
+      return 0
+    fi
+  done
 
-resolve_ai_dir() {
-  if [ -n "${LOCALAI_DIR:-}" ]; then
-    expand_path "$LOCALAI_DIR"
-  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-    cd "$SCRIPT_DIR/.." && pwd
-  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    expand_path "$LOCALAI_DEFAULT_DIR"
-  else
-    printf '%s\n' "$SCRIPT_DIR"
-  fi
+  echo "Error: missing LocalAI library: common.sh" >&2
+  exit 1
 }
+source_localai_common
 
 AI_DIR="$(resolve_ai_dir)"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
@@ -142,14 +134,11 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
   [ -f "$MODEL" ] || continue
   NAME="$(basename "$MODEL" .gguf)"
   MODEL_EXTRA_ARGS=""
-  case "${NAME,,}" in
-    *qwen3*embedding*)
+  if [[ "${NAME,,}" == *qwen3*embedding* ]]; then
       MODEL_EXTRA_ARGS="--embeddings --pooling last"
-      ;;
-    *embedding*|*embed*|*bge*|*e5*)
+  elif model_is_embedding_name "$NAME"; then
       MODEL_EXTRA_ARGS="--embeddings"
-      ;;
-  esac
+  fi
   if [[ "$NAME" == *['"$`\']* ]]; then
     echo "Skipping unsupported model filename: $(basename "$MODEL")" >&2
     continue

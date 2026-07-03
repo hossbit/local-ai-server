@@ -13,9 +13,25 @@ else
   echo "Error: localai.conf not found." >&2
   exit 1
 fi
+source_localai_common() {
+  local candidate
+
+  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
+    if [ -f "$candidate" ]; then
+      # shellcheck source=/dev/null
+      . "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Error: missing LocalAI library: common.sh" >&2
+  exit 1
+}
+source_localai_common
 
 AI_DIR=""
 BIN_DIR=""
+LIB_DIR=""
 CONF_DIR=""
 MODELS_DIR=""
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
@@ -23,29 +39,6 @@ LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 REMOVE_MODELS=0
 REMOVE_LLAMA_SWAP=0
 FORCE=0
-
-expand_path() {
-  local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
-}
-
-resolve_ai_dir() {
-  if [ -n "${LOCALAI_DIR:-}" ]; then
-    expand_path "$LOCALAI_DIR"
-  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-    cd "$SCRIPT_DIR/.." && pwd
-  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    expand_path "$LOCALAI_DEFAULT_DIR"
-  else
-    printf '%s\n' "$SCRIPT_DIR"
-  fi
-}
 
 usage() {
   cat <<EOF
@@ -140,8 +133,10 @@ done
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+LIB_DIR="$AI_DIR/$LOCALAI_LIB_SUBDIR"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
+resolve_llama_swap_paths
 
 REMOVE_TARGETS=()
 KEEP_TARGETS=()
@@ -155,6 +150,7 @@ fi
 for TARGET in \
   "$SERVICE_FILE" \
   "$BIN_DIR" \
+  "$LIB_DIR" \
   "$CONF_DIR" \
   "$AI_DIR/start.sh" \
   "$AI_DIR/stop.sh" \
@@ -279,6 +275,7 @@ fi
 log "Removing LocalAI files"
 
 remove_if_exists "$BIN_DIR"
+remove_if_exists "$LIB_DIR"
 remove_if_exists "$CONF_DIR"
 remove_if_exists "$AI_DIR/start.sh"
 remove_if_exists "$AI_DIR/stop.sh"
@@ -309,7 +306,7 @@ fi
 if [ "$REMOVE_LLAMA_SWAP" -eq 1 ]; then
   if [ -e "$LLAMA_SWAP_INSTALL_PATH" ] || [ -L "$LLAMA_SWAP_INSTALL_PATH" ]; then
     log "Removing $LLAMA_SWAP_INSTALL_PATH"
-    sudo rm -f -- "$LLAMA_SWAP_INSTALL_PATH"
+    rm -f -- "$LLAMA_SWAP_INSTALL_PATH"
   fi
 fi
 

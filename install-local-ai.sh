@@ -5,9 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=localai.conf
 . "$SCRIPT_DIR/localai.conf"
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/install.sh
+source "$SCRIPT_DIR/lib/install.sh"
 
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
+LIB_DIR=""
 CONF_DIR=""
 MODELS_DIR=""
 LOCALAI_CLI_PATH=""
@@ -15,6 +20,8 @@ LOCALAI_CLI_LINK=""
 LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
 LLAMA_CPP_ASSET_RE=""
 LLAMA_CPP_URL=""
+LLAMA_CPP_JSON=""
+LLAMA_SWAP_JSON=""
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -35,17 +42,6 @@ Options:
   --dir PATH     Install LocalAI into PATH. Same as LOCALAI_DIR=PATH.
   -h, --help     Show this help
 EOF
-}
-
-expand_path() {
-  local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
 }
 
 parse_args() {
@@ -144,17 +140,16 @@ select_llama_cpp_asset_regex() {
 }
 
 resolve_llama_cpp_url() {
-  local json
-
   log "Finding llama.cpp $LLAMA_CPP_VERSION asset for backend: $LLAMA_CPP_BACKEND"
-  json=$(curl -4 --connect-timeout 10 --max-time 30 -fsSL "$LLAMA_CPP_RELEASE_API") ||
-    fail "failed to fetch llama.cpp release metadata"
-  LLAMA_CPP_URL=$(jq -er \
-    --arg pattern "$LLAMA_CPP_ASSET_RE" \
-    '.assets[] | select(.name | test($pattern)) | .browser_download_url' \
-    <<<"$json" | head -n1 || true)
+  LLAMA_CPP_JSON="$(github_api_get "$LLAMA_CPP_RELEASE_API")"
+  LLAMA_CPP_URL="$(release_asset_url "$LLAMA_CPP_JSON" "$LLAMA_CPP_ASSET_RE")"
 
   [ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp asset found for backend '$LLAMA_CPP_BACKEND' in release $LLAMA_CPP_VERSION"
+}
+
+resolve_llama_swap_release() {
+  log "Finding llama-swap $LLAMA_SWAP_VERSION asset"
+  LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_RELEASE_API")"
 }
 
 verify_llama_server() {
@@ -185,55 +180,20 @@ cleanup_bin_artifacts() {
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
-config_assignment_value() {
-  local key="$1"
-  local file="$2"
-
-  [ -f "$file" ] || return 1
-  awk -F= -v key="$key" '
-    $1 == key {
-      value = substr($0, index($0, "=") + 1)
-      sub(/[[:space:]]*#.*/, "", value)
-      gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", value)
-      print value
-    }
-  ' "$file" | tail -n 1
-}
-
-append_runtime_tuning() {
-  local installed_conf="$CONF_DIR/localai.conf"
-  local source_conf="$1"
-  local key value had_ctx=0 had_gpu=0
-
-  {
-    echo
-    echo "# Runtime tuning preserved by installer."
-    for key in LOCALAI_CTX_SIZE LOCALAI_N_GPU_LAYERS LOCALAI_THREADS LOCALAI_CACHE_TYPE_K LOCALAI_CACHE_TYPE_V LOCALAI_PARALLEL LOCALAI_BATCH_SIZE LOCALAI_UBATCH_SIZE LOCALAI_FLASH_ATTN LOCALAI_JINJA LOCALAI_MLOCK LOCALAI_NO_MMAP LOCALAI_EXTRA_LLAMA_ARGS LOCALAI_HEALTH_CHECK_TIMEOUT LOCALAI_GLOBAL_TTL; do
-      value="$(config_assignment_value "$key" "$source_conf" || true)"
-      if [ -n "$value" ]; then
-        printf '%s="%s"\n' "$key" "$value"
-        [ "$key" = "LOCALAI_CTX_SIZE" ] && had_ctx=1
-        [ "$key" = "LOCALAI_N_GPU_LAYERS" ] && had_gpu=1
-      fi
-    done
-    if [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
-      [ "$had_ctx" -eq 1 ] || echo 'LOCALAI_CTX_SIZE="4096"'
-      [ "$had_gpu" -eq 1 ] || echo 'LOCALAI_N_GPU_LAYERS="0"'
-    fi
-  } >> "$installed_conf"
-}
 [ "$(uname -m)" = "x86_64" ] || fail "this installer currently supports x86_64 Linux only"
 
 parse_args "$@"
 select_ai_dir
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
+LIB_DIR="$AI_DIR/$LOCALAI_LIB_SUBDIR"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOCALAI_CLI_PATH="$BIN_DIR/$LOCALAI_CLI_NAME"
 LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
+resolve_llama_swap_paths
 select_llama_cpp_asset_regex
 
-mkdir -p "$AI_DIR" "$BIN_DIR" "$CONF_DIR" "$MODELS_DIR"
+mkdir -p "$AI_DIR" "$BIN_DIR" "$LIB_DIR" "$CONF_DIR" "$MODELS_DIR"
 if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
   cp "$AI_DIR/$LOCALAI_PORT_FILE" "$CONF_DIR/$LOCALAI_PORT_FILE"
 fi
@@ -244,6 +204,7 @@ fi
 
 install_system_dependencies
 resolve_llama_cpp_url
+resolve_llama_swap_release
 
 ###############################################################################
 # DOWNLOAD RELEASE ARCHIVES
@@ -254,17 +215,11 @@ trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
 
 log "Downloading llama.cpp $LLAMA_CPP_VERSION ($LLAMA_CPP_BACKEND backend)"
 
-curl -4 -fL --retry 3 --retry-delay 2 \
-  --output "$DOWNLOAD_DIR/llama.cpp.tar.gz" \
-  "$LLAMA_CPP_URL" \
-  || fail "failed to download llama.cpp"
+download_verified_asset "$LLAMA_CPP_JSON" "$LLAMA_CPP_URL" "$DOWNLOAD_DIR/llama.cpp.tar.gz" "llama.cpp"
 
 log "Downloading llama-swap $LLAMA_SWAP_VERSION"
 
-curl -4 -fL --retry 3 --retry-delay 2 \
-  --output "$DOWNLOAD_DIR/llama-swap.tar.gz" \
-  "$LLAMA_SWAP_URL" \
-  || fail "failed to download llama-swap"
+download_verified_asset "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_URL" "$DOWNLOAD_DIR/llama-swap.tar.gz" "llama-swap"
 
 if [ -x "$BIN_DIR/stop.sh" ] && [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; then
   log "Stopping the existing LocalAI service"
@@ -321,7 +276,7 @@ LLAMA_SWAP_REAL=$(
 )
 [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the archive"
 
-sudo install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
+install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
 
 ###############################################################################
 # SELECT API PORT
@@ -344,21 +299,7 @@ log "Installing helper scripts and systemd service"
 mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
 mkdir -p "$LOCALAI_USER_BIN_DIR"
 
-cat > "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" <<EOF
-[Unit]
-Description=LocalAI Server
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=$BIN_DIR/start.sh
-ExecStop=$BIN_DIR/stop.sh
-
-[Install]
-WantedBy=default.target
-EOF
+write_systemd_user_service "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" "$BIN_DIR"
 
 install -m755 "$SCRIPT_DIR/start.sh" "$BIN_DIR/start.sh"
 install -m755 "$SCRIPT_DIR/stop.sh" "$BIN_DIR/stop.sh"
@@ -366,6 +307,7 @@ install -m755 "$SCRIPT_DIR/rebuild-config.sh" "$BIN_DIR/rebuild-config.sh"
 install -m755 "$SCRIPT_DIR/update-local-ai.sh" "$BIN_DIR/update-local-ai.sh"
 install -m755 "$SCRIPT_DIR/uninstall-local-ai.sh" "$BIN_DIR/uninstall-local-ai.sh"
 install -m755 "$SCRIPT_DIR/localai" "$LOCALAI_CLI_PATH"
+install_localai_libs "$SCRIPT_DIR" "$LIB_DIR"
 PREVIOUS_LOCALAI_CONF="$CONF_DIR/localai.conf"
 if [ -f "$PREVIOUS_LOCALAI_CONF" ]; then
   cp "$PREVIOUS_LOCALAI_CONF" "$DOWNLOAD_DIR/localai.conf.previous"
@@ -375,7 +317,7 @@ elif [ -f "$AI_DIR/localai.conf" ]; then
   PREVIOUS_LOCALAI_CONF="$DOWNLOAD_DIR/localai.conf.previous"
 fi
 install -m644 "$SCRIPT_DIR/localai.conf" "$CONF_DIR/localai.conf"
-append_runtime_tuning "$PREVIOUS_LOCALAI_CONF"
+append_runtime_tuning "$PREVIOUS_LOCALAI_CONF" "installer"
 
 for OLD_HELPER in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh "$LOCALAI_CLI_NAME"; do
   rm -f -- "$AI_DIR/$OLD_HELPER"
@@ -478,7 +420,7 @@ esac
 echo "Current versions:"
 "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
-llama-swap --version 2>&1 | awk 'NR == 1 {print; exit}'
+"$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo
 if ! find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
   echo "No GGUF models found in:"

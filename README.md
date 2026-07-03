@@ -233,7 +233,7 @@ Advanced forms:
 | `LOCALAI_FLASH_ATTN=1 LOCALAI_PARALLEL=2 localai start` | Enable optional llama-server tuning for one start. |
 | `localai uninstall --remove-models` | Also remove downloaded models. |
 | `localai uninstall --dir ~/my-ai` | Uninstall from a custom directory. |
-| `localai uninstall --remove-llama-swap` | Also remove the shared `llama-swap` binary. |
+| `localai uninstall --remove-llama-swap` | Also remove the per-user `llama-swap` binary. |
 
 ## Configuration
 

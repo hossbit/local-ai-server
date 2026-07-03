@@ -13,40 +13,30 @@ else
   echo "Error: localai.conf not found." >&2
   exit 1
 fi
+source_localai_common() {
+  local candidate
 
-expand_path() {
-  local value="$1"
-  if [[ "$value" == "~" ]]; then
-    printf '%s\n' "$HOME"
-  elif [[ "${value:0:2}" == "~/" ]]; then
-    printf '%s/%s\n' "$HOME" "${value:2}"
-  else
-    printf '%s\n' "$value"
-  fi
-}
+  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
+    if [ -f "$candidate" ]; then
+      # shellcheck source=/dev/null
+      . "$candidate"
+      return 0
+    fi
+  done
 
-resolve_ai_dir() {
-  if [ -n "${LOCALAI_DIR:-}" ]; then
-    expand_path "$LOCALAI_DIR"
-  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-    cd "$SCRIPT_DIR/.." && pwd
-  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
-    expand_path "$LOCALAI_DEFAULT_DIR"
-  else
-    printf '%s\n' "$SCRIPT_DIR"
-  fi
+  echo "Error: missing LocalAI library: common.sh" >&2
+  exit 1
 }
+source_localai_common
 
 AI_DIR="$(resolve_ai_dir)"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
+PID_START_FILE="$CONF_DIR/$LOCALAI_PID_FILE.start"
 PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
 
 api_base_url() {
-  local port
-
-  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
-  printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
+  api_base_url_for_port_file "$PORT_FILE"
 }
 
 unload_loaded_models() {
@@ -80,10 +70,10 @@ if ! [[ "$PID" =~ ^[0-9]+$ ]]; then
   exit 0
 fi
 
-if kill -0 "$PID" 2>/dev/null; then
+if pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
   COMMAND=$(ps -p "$PID" -o comm= 2>/dev/null || true)
   if [[ "$COMMAND" != *llama-swap* ]]; then
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$PID_START_FILE"
     echo "Removed stale PID file; PID $PID belongs to ${COMMAND:-another process}."
     exit 0
   fi
@@ -103,5 +93,5 @@ if kill -0 "$PID" 2>/dev/null; then
   fi
 fi
 
-rm -f "$PID_FILE"
+rm -f "$PID_FILE" "$PID_START_FILE"
 echo "LocalAI stopped"

@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2154
+
+expand_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "$HOME"
+  elif [[ "${value:0:2}" == "~/" ]]; then
+    printf '%s/%s\n' "$HOME" "${value:2}"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+resolve_ai_dir() {
+  if [ -n "${LOCALAI_DIR:-}" ]; then
+    expand_path "$LOCALAI_DIR"
+  elif [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+    cd "$SCRIPT_DIR/.." && pwd
+  elif [ -f "$SCRIPT_DIR/install-local-ai.sh" ]; then
+    expand_path "$LOCALAI_DEFAULT_DIR"
+  else
+    printf '%s\n' "$SCRIPT_DIR"
+  fi
+}
+
+resolve_llama_swap_paths() {
+  if [ -z "${LLAMA_SWAP_INSTALL_PATH:-}" ] || [ "$LLAMA_SWAP_INSTALL_PATH" = "/usr/local/bin/llama-swap" ]; then
+    LLAMA_SWAP_INSTALL_PATH="$BIN_DIR/llama-swap"
+  fi
+  LLAMA_SWAP_BIN="${LLAMA_SWAP_BIN:-$LLAMA_SWAP_INSTALL_PATH}"
+}
+
+source_localai_lib() {
+  local name="$1"
+  local candidate
+
+  for candidate in "$SCRIPT_DIR/lib/$name" "$SCRIPT_DIR/../lib/$name"; do
+    if [ -f "$candidate" ]; then
+      # shellcheck source=/dev/null
+      . "$candidate"
+      return 0
+    fi
+  done
+
+  echo "Error: missing LocalAI library: $name" >&2
+  exit 1
+}
+
+api_base_url_for_port_file() {
+  local port_file="$1"
+  local port
+
+  port="$([ -f "$port_file" ] && cat "$port_file" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
+  printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
+}
+
+model_is_embedding_name() {
+  local model="${1,,}"
+
+  case "$model" in
+    *qwen3*embedding*|*embedding*|*embed*|*bge*) return 0 ;;
+    e5-*|*[-_.]e5[-_.]*|*[-_.]e5) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+process_start_time() {
+  local pid="$1"
+
+  ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+pid_file_matches_process() {
+  local pid_file="$1"
+  local start_file="$2"
+  local pid recorded_start current_start
+
+  [ -f "$pid_file" ] || return 1
+  pid="$(<"$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+
+  if [ -f "$start_file" ]; then
+    recorded_start="$(<"$start_file")"
+    current_start="$(process_start_time "$pid")"
+    [ -n "$current_start" ] && [ "$recorded_start" = "$current_start" ] || return 1
+  fi
+
+  return 0
+}
