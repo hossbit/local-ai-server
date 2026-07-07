@@ -38,11 +38,16 @@ the configured install directory, which defaults to `~/ai/models`.
 - `sudo` access during installation
 - Enough RAM and VRAM for the model and quantization you choose
 
+RHEL 7/8 users may need to enable EPEL before installing because `jq` is not
+always available in the default enabled repositories.
+
 The installer uses the known compatible releases `llama.cpp b9672` and
 `llama-swap v226`. The separate update script checks for newer releases.
 The default llama.cpp backend is `vulkan`. For CPU-only machines or simple VM
 testing, use `LLAMA_CPP_BACKEND=cpu`; CPU installs use smaller defaults and no
 GPU offload.
+If a non-CPU backend installs but cannot run, the installer retries once with
+the CPU backend by default. Set `LOCALAI_CPU_FALLBACK=0` to disable that retry.
 
 The installer can install required packages with `apt-get`, `dnf`, or `yum`.
 
@@ -256,10 +261,12 @@ Default runtime settings are:
 
 - Vulkan and other GPU-capable backends: context size `16384`, GPU layers `8`
 - CPU backend: context size `4096`, GPU layers `0`
-- Threads: `6`
-- KV cache: `q4_0`
+- Threads: detected with `nproc`, falling back to `6`
+- KV cache: `f16`
+- Parallel slots: `2` for GPU-capable backends, `1` for CPU
 - Jinja chat templates: enabled
-- Flash attention, mlock, no-mmap, parallel, batch size, and ubatch size: disabled unless configured
+- Flash attention: enabled for non-CPU backends, disabled for CPU
+- Mlock, no-mmap, batch size, and ubatch size: disabled unless configured
 - Idle model timeout: `900` seconds
 
 Useful llama-server tuning variables:

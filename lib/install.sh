@@ -152,7 +152,7 @@ append_runtime_tuning() {
   local installed_conf="$CONF_DIR/localai.conf"
   local source_conf="$1"
   local marker="$2"
-  local key value had_ctx=0 had_gpu=0
+  local key value had_ctx=0 had_gpu=0 had_flash=0 had_parallel=0
 
   {
     echo
@@ -163,11 +163,15 @@ append_runtime_tuning() {
         printf '%s="%s"\n' "$key" "$value"
         [ "$key" = "LOCALAI_CTX_SIZE" ] && had_ctx=1
         [ "$key" = "LOCALAI_N_GPU_LAYERS" ] && had_gpu=1
+        [ "$key" = "LOCALAI_FLASH_ATTN" ] && had_flash=1
+        [ "$key" = "LOCALAI_PARALLEL" ] && had_parallel=1
       fi
     done
     if [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
       [ "$had_ctx" -eq 1 ] || echo 'LOCALAI_CTX_SIZE="4096"'
       [ "$had_gpu" -eq 1 ] || echo 'LOCALAI_N_GPU_LAYERS="0"'
+      [ "$had_flash" -eq 1 ] || echo 'LOCALAI_FLASH_ATTN="0"'
+      [ "$had_parallel" -eq 1 ] || echo 'LOCALAI_PARALLEL="1"'
     fi
   } >> "$installed_conf"
 }

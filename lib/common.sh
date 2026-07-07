@@ -60,6 +60,27 @@ api_base_url_for_port_file() {
   printf 'http://%s:%s' "$LOCALAI_LISTEN_HOST" "$port"
 }
 
+port_is_listening() {
+  local port="$1"
+  local port_hex
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${port}$"
+    return "$?"
+  fi
+
+  port_hex="$(printf '%04X' "$port")"
+  awk -v port="$port_hex" '
+    $4 == "0A" {
+      n = split($2, address, ":")
+      if (toupper(address[n]) == port) {
+        found = 1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  ' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
 model_is_embedding_name() {
   local model="${1,,}"
 

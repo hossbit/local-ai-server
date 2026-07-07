@@ -94,19 +94,27 @@ select_ai_dir() {
 
 install_system_dependencies() {
   local packages
+  local sudo_cmd=()
 
   log "Installing system dependencies"
 
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || fail "sudo is required to install system dependencies when not running as root"
+    sudo_cmd=(sudo)
+  fi
+
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
+    "${sudo_cmd[@]}" apt-get update
     read -r -a packages <<< "$LOCALAI_APT_PACKAGES"
-    sudo apt-get install -y "${packages[@]}"
+    "${sudo_cmd[@]}" apt-get install -y "${packages[@]}"
   elif command -v dnf >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_DNF_PACKAGES"
-    sudo dnf install -y "${packages[@]}"
+    "${sudo_cmd[@]}" dnf install -y "${packages[@]}" ||
+      fail "failed to install dnf packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   elif command -v yum >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_YUM_PACKAGES"
-    sudo yum install -y "${packages[@]}"
+    "${sudo_cmd[@]}" yum install -y "${packages[@]}" ||
+      fail "failed to install yum packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   else
     fail "supported package manager not found. Install required packages listed in localai.conf, then rerun this installer."
   fi
@@ -123,6 +131,9 @@ resolve_llama_cpp_url() {
 resolve_llama_swap_release() {
   log "Finding llama-swap $LLAMA_SWAP_VERSION asset"
   LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_RELEASE_API")"
+  LLAMA_SWAP_URL="${LLAMA_SWAP_URL:-$(release_asset_url "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_ASSET_RE")}"
+
+  [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found in release $LLAMA_SWAP_VERSION"
 }
 
 verify_llama_server() {
@@ -130,6 +141,10 @@ verify_llama_server() {
     return 0
   fi
 
+  return 1
+}
+
+explain_llama_server_failure() {
   cat >&2 <<EOF
 Error: installed llama.cpp backend '$LLAMA_CPP_BACKEND' did not run on this system.
 
@@ -143,7 +158,60 @@ Try another backend, for example:
 
 Or install the missing runtime libraries for your selected backend and rerun.
 EOF
-  exit 1
+}
+
+install_llama_cpp_archive() {
+  local archive="$1"
+  local llama_server_real
+  local llama_release_dir
+
+  rm -rf "$DOWNLOAD_DIR/llama.cpp"
+  mkdir -p "$DOWNLOAD_DIR/llama.cpp"
+  tar -xzf "$archive" \
+    -C "$DOWNLOAD_DIR/llama.cpp" \
+    || fail "failed to extract llama.cpp"
+
+  llama_server_real=$(
+    find "$DOWNLOAD_DIR/llama.cpp" -type f -name llama-server -print -quit
+  )
+  [ -n "$llama_server_real" ] || fail "llama-server was not found in the archive"
+
+  llama_release_dir=$(dirname "$llama_server_real")
+  rm -rf "$BIN_DIR/llama.cpp"
+  mv "$llama_release_dir" "$BIN_DIR/llama.cpp"
+
+  cat > "$DOWNLOAD_DIR/llama-server" <<EOF
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
+exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
+EOF
+
+  install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
+  echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
+}
+
+fallback_to_cpu_backend() {
+  local failed_backend="$LLAMA_CPP_BACKEND"
+
+  if [ "$LOCALAI_CPU_FALLBACK" != "1" ] || [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
+    explain_llama_server_failure
+    exit 1
+  fi
+
+  echo "Warning: llama.cpp backend '$failed_backend' did not run; retrying with CPU backend." >&2
+  LLAMA_CPP_BACKEND="cpu"
+  select_llama_cpp_asset_regex ""
+  resolve_llama_cpp_url
+
+  log "Downloading llama.cpp $LLAMA_CPP_VERSION (cpu fallback backend)"
+  download_verified_asset "$LLAMA_CPP_JSON" "$LLAMA_CPP_URL" "$DOWNLOAD_DIR/llama.cpp.cpu.tar.gz" "llama.cpp cpu fallback"
+
+  log "Installing llama.cpp CPU fallback"
+  install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.cpu.tar.gz"
+  if ! verify_llama_server; then
+    explain_llama_server_failure
+    exit 1
+  fi
 }
 
 cleanup_bin_artifacts() {
@@ -208,29 +276,10 @@ fi
 
 log "Installing llama.cpp"
 
-mkdir -p "$DOWNLOAD_DIR/llama.cpp"
-tar -xzf "$DOWNLOAD_DIR/llama.cpp.tar.gz" \
-  -C "$DOWNLOAD_DIR/llama.cpp" \
-  || fail "failed to extract llama.cpp"
-
-LLAMA_SERVER_REAL=$(
-  find "$DOWNLOAD_DIR/llama.cpp" -type f -name llama-server -print -quit
-)
-[ -n "$LLAMA_SERVER_REAL" ] || fail "llama-server was not found in the archive"
-
-LLAMA_RELEASE_DIR=$(dirname "$LLAMA_SERVER_REAL")
-rm -rf "$BIN_DIR/llama.cpp"
-mv "$LLAMA_RELEASE_DIR" "$BIN_DIR/llama.cpp"
-
-cat > "$DOWNLOAD_DIR/llama-server" <<EOF
-#!/usr/bin/env bash
-export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
-exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
-EOF
-
-install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
-echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
-verify_llama_server
+install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.tar.gz"
+if ! verify_llama_server; then
+  fallback_to_cpu_backend
+fi
 cleanup_bin_artifacts
 
 ###############################################################################
@@ -257,7 +306,7 @@ install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
 
 if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ]; then
   PORT="$LOCALAI_DEFAULT_PORT"
-  while ss -ltn | awk '{print $4}' | grep -q ":${PORT}$"; do
+  while port_is_listening "$PORT"; do
     PORT=$((PORT + 1))
   done
   echo "$PORT" > "$CONF_DIR/$LOCALAI_PORT_FILE"

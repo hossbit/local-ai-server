@@ -105,7 +105,7 @@ pid_status() {
     echo "LocalAI process: not running (no PID file)"
   fi
   echo "API: http://${LOCALAI_LISTEN_HOST}:$port"
-  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${port}$"; then
+  if port_is_listening "$port"; then
     echo "Port: listening"
   else
     echo "Port: not listening"
@@ -216,7 +216,8 @@ logs_cmd() {
 }
 
 models_cmd() {
-  local loaded_models="" loaded_available=0 loaded_checked=0 file model status
+  local loaded_models="" loaded_available=0 loaded_checked=0 file model status loaded
+  local -A loaded_model_set=()
 
   if [ ! -d "$MODELS_DIR" ]; then
     echo "Models directory does not exist: $MODELS_DIR"
@@ -232,6 +233,10 @@ models_cmd() {
     loaded_checked=1
     if loaded_models="$(running_models 2>/dev/null)"; then
       loaded_available=1
+      while IFS= read -r loaded; do
+        [ -n "$loaded" ] || continue
+        loaded_model_set["$loaded"]=1
+      done <<< "$loaded_models"
     fi
   fi
 
@@ -239,8 +244,7 @@ models_cmd() {
     model="${file%.gguf}"
     status=""
     if [ "$loaded_available" -eq 1 ]; then
-      if printf '%s\n' "$loaded_models" | grep -Fxq "$model" ||
-        printf '%s\n' "$loaded_models" | grep -Fxq "$file"; then
+      if [[ -n "${loaded_model_set[$model]+x}" || -n "${loaded_model_set[$file]+x}" ]]; then
         status=" [loaded]"
       else
         status=" [not loaded]"
