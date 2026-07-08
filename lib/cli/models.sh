@@ -1,4 +1,4 @@
-# shellcheck shell=bash disable=SC2154
+# shellcheck shell=bash disable=SC2034,SC2154
 
 models_cmd() {
   local loaded_models="" loaded_available=0 loaded_checked=0 id rel path status loaded
