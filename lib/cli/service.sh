@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2154
+
 service_cmd() {
   local action="$1"
 

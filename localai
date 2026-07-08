@@ -15,7 +15,7 @@ else
   exit 1
 fi
 
-source_localai_lib() {
+source_localai_cli_lib() {
   local name="$1"
   local candidate
 
@@ -28,10 +28,14 @@ source_localai_lib() {
   done
 
   echo "Error: missing LocalAI library: $name" >&2
+  if [[ "$name" == cli/* ]]; then
+    echo "Run the direct updater to repair the installed CLI modules:" >&2
+    echo "  $SCRIPT_DIR/update-local-ai.sh" >&2
+  fi
   exit 1
 }
 
-source_localai_lib common.sh
+source_localai_cli_lib common.sh
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
@@ -45,11 +49,11 @@ SERVICE_UNIT="${LOCALAI_SERVICE_NAME%.service}"
 SERVICE_FILE="$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME"
 resolve_llama_swap_paths
 
-source_localai_lib cli/core.sh
-source_localai_lib cli/service.sh
-source_localai_lib cli/models.sh
-source_localai_lib cli/suggest.sh
-source_localai_lib cli/lifecycle.sh
+source_localai_cli_lib cli/core.sh
+source_localai_cli_lib cli/service.sh
+source_localai_cli_lib cli/models.sh
+source_localai_cli_lib cli/suggest.sh
+source_localai_cli_lib cli/lifecycle.sh
 
 COMMAND="${1:-help}"
 if [ "$#" -gt 0 ]; then

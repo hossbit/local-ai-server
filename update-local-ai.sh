@@ -231,6 +231,13 @@ if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
   if [ -f "$LOCALAI_SOURCE_DIR/lib/common.sh" ] && [ -f "$LOCALAI_SOURCE_DIR/lib/install.sh" ]; then
     install_localai_libs "$LOCALAI_SOURCE_DIR" "$LIB_DIR"
   fi
+  if [ -d "$LOCALAI_SOURCE_DIR/lib/cli" ]; then
+    mkdir -p "$LIB_DIR/cli"
+    for CLI_MODULE in "$LOCALAI_SOURCE_DIR"/lib/cli/*.sh; do
+      [ -f "$CLI_MODULE" ] || continue
+      install -m644 "$CLI_MODULE" "$LIB_DIR/cli/$(basename "$CLI_MODULE")"
+    done
+  fi
   if [ -x "$BIN_DIR/localai" ]; then
     mkdir -p "$LOCALAI_USER_BIN_DIR"
     ln -sfn "$BIN_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"

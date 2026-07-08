@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2154
+
 models_cmd() {
   local loaded_models="" loaded_available=0 loaded_checked=0 id rel path status loaded
   local -A loaded_model_set=()

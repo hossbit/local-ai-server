@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2154
+
 update_cmd() {
   local updater="$BIN_DIR/update-local-ai.sh"
   [ -x "$updater" ] || updater="$SCRIPT_DIR/update-local-ai.sh"

@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2154
+
 system_ram_bytes() {
   if [ -n "${LOCALAI_SUGGEST_RAM_BYTES:-}" ]; then
     printf '%s\n' "$LOCALAI_SUGGEST_RAM_BYTES"

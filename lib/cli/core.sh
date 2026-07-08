@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2154
+
 usage() {
   cat <<EOF
 Usage: localai COMMAND
