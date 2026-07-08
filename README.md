@@ -60,16 +60,69 @@ manual installs, backend selection, and pinned component versions.
 
 ## Add a model
 
-Place one or more `.gguf` files in:
+LocalAI discovers GGUF files from:
 
 ```text
 ~/ai/models
 ```
 
-Split GGUF models are supported when shards use llama.cpp naming, such as
-`name-00001-of-00003.gguf`. For many split models, use one folder per model.
-The exposed model ID is the filename without `.gguf`, or the folder name when a
-folder contains one model.
+Download a `.gguf` model from a source such as Hugging Face, then put it in that
+directory. After adding or removing models, restart LocalAI so it regenerates
+the config, then list the detected models:
+
+```bash
+localai restart
+localai models
+```
+
+For a single-file model, either place the file directly in `~/ai/models`:
+
+```text
+~/ai/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+```
+
+or keep it in its own folder:
+
+```text
+~/ai/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M/
+`-- Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+```
+
+For split GGUF models, keep all shards together in one folder. The first shard
+must use canonical llama.cpp split naming, such as `00001-of-00003`:
+
+```text
+~/ai/models/DeepSeek-V4-Flash-UD-IQ1_M/
+|-- DeepSeek-V4-Flash-UD-IQ1_M-00001-of-00003.gguf
+|-- DeepSeek-V4-Flash-UD-IQ1_M-00002-of-00003.gguf
+`-- DeepSeek-V4-Flash-UD-IQ1_M-00003-of-00003.gguf
+```
+
+LocalAI registers only the first shard. `llama.cpp` loads the remaining shards
+automatically.
+
+Recommended layout:
+
+```text
+~/ai/models/
+|-- Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
+|-- Mistral-7B-Instruct-Q4_K_M/
+|   `-- Mistral-7B-Instruct-Q4_K_M.gguf
+`-- DeepSeek-V4-Flash-UD-IQ1_M/
+    |-- DeepSeek-V4-Flash-UD-IQ1_M-00001-of-00003.gguf
+    |-- DeepSeek-V4-Flash-UD-IQ1_M-00002-of-00003.gguf
+    `-- DeepSeek-V4-Flash-UD-IQ1_M-00003-of-00003.gguf
+```
+
+If LocalAI warns that files look like non-canonical split fragments, rename the
+files to llama.cpp split format or merge them first:
+
+```bash
+llama-gguf-split --merge first-fragment.gguf merged-model.gguf
+```
+
+Use `localai suggest` after adding large models to get advisory runtime settings
+based on your installed models, RAM, backend, and detected GPU memory.
 
 ## Use the server
 
