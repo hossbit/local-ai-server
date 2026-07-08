@@ -234,16 +234,12 @@ EOF
 install_localai_libs() {
   local source_dir="$1"
   local dest_dir="$2"
-  local module
+  local path rel
 
   mkdir -p "$dest_dir"
-  install -m644 "$source_dir/lib/common.sh" "$dest_dir/common.sh"
-  install -m644 "$source_dir/lib/install.sh" "$dest_dir/install.sh"
-  if [ -d "$source_dir/lib/cli" ]; then
-    mkdir -p "$dest_dir/cli"
-    for module in "$source_dir"/lib/cli/*.sh; do
-      [ -f "$module" ] || continue
-      install -m644 "$module" "$dest_dir/cli/$(basename "$module")"
-    done
-  fi
+  while IFS= read -r path; do
+    rel="${path#"$source_dir/lib/"}"
+    mkdir -p "$dest_dir/$(dirname "$rel")"
+    install -m644 "$path" "$dest_dir/$rel"
+  done < <(find "$source_dir/lib" -type f | sort)
 }

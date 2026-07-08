@@ -177,6 +177,18 @@ cleanup_bin_artifacts() {
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
+refresh_localai_libs() {
+  local path rel
+
+  [ -d "$LOCALAI_SOURCE_DIR/lib" ] || return 0
+  mkdir -p "$LIB_DIR"
+  while IFS= read -r path; do
+    rel="${path#"$LOCALAI_SOURCE_DIR/lib/"}"
+    mkdir -p "$LIB_DIR/$(dirname "$rel")"
+    install -m644 "$path" "$LIB_DIR/$rel"
+  done < <(find "$LOCALAI_SOURCE_DIR/lib" -type f | sort)
+}
+
 ###############################################################################
 # CHECK REQUIREMENTS
 ###############################################################################
@@ -228,16 +240,7 @@ if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
     install -m644 "$LOCALAI_SOURCE_DIR/localai.conf" "$CONF_DIR/localai.conf"
     append_runtime_tuning "$PREVIOUS_LOCALAI_CONF" "updater"
   fi
-  if [ -f "$LOCALAI_SOURCE_DIR/lib/common.sh" ] && [ -f "$LOCALAI_SOURCE_DIR/lib/install.sh" ]; then
-    install_localai_libs "$LOCALAI_SOURCE_DIR" "$LIB_DIR"
-  fi
-  if [ -d "$LOCALAI_SOURCE_DIR/lib/cli" ]; then
-    mkdir -p "$LIB_DIR/cli"
-    for CLI_MODULE in "$LOCALAI_SOURCE_DIR"/lib/cli/*.sh; do
-      [ -f "$CLI_MODULE" ] || continue
-      install -m644 "$CLI_MODULE" "$LIB_DIR/cli/$(basename "$CLI_MODULE")"
-    done
-  fi
+  refresh_localai_libs
   if [ -x "$BIN_DIR/localai" ]; then
     mkdir -p "$LOCALAI_USER_BIN_DIR"
     ln -sfn "$BIN_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"

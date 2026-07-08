@@ -28,6 +28,19 @@ source_localai_cli_lib() {
     fi
   done
 
+  if [[ "$name" == cli/* ]] && [ "${LOCALAI_CLI_LIB_REPAIR:-0}" != "1" ] && [ -x "$SCRIPT_DIR/update-local-ai.sh" ]; then
+    echo "Warning: missing LocalAI CLI module $name; attempting repair with $SCRIPT_DIR/update-local-ai.sh --no-start" >&2
+    if LOCALAI_CLI_LIB_REPAIR=1 "$SCRIPT_DIR/update-local-ai.sh" --no-start >/dev/null; then
+      for candidate in "$SCRIPT_DIR/lib/$name" "$SCRIPT_DIR/../lib/$name"; do
+        if [ -f "$candidate" ]; then
+          # shellcheck source=/dev/null
+          . "$candidate"
+          return 0
+        fi
+      done
+    fi
+  fi
+
   echo "Error: missing LocalAI library: $name" >&2
   if [[ "$name" == cli/* ]]; then
     echo "Run the direct updater to repair the installed CLI modules:" >&2
