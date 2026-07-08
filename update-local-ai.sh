@@ -138,14 +138,13 @@ start_localai() {
 }
 
 print_current_versions() {
+  local localai_version
+
   echo
   echo "Current versions:"
   if [ -f "$CONF_DIR/localai.conf" ]; then
-    (
-      # shellcheck source=/dev/null
-      . "$CONF_DIR/localai.conf"
-      echo "LocalAI: $LOCALAI_VERSION"
-    )
+    localai_version="$(localai_conf_default_version "$CONF_DIR/localai.conf" || true)"
+    echo "LocalAI: ${localai_version:-$LOCALAI_VERSION}"
   fi
   "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
   echo "llama.cpp backend: $LLAMA_CPP_BACKEND"

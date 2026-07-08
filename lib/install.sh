@@ -149,6 +149,13 @@ llama_cpp_versions_match() {
   [ -n "$current" ] && [ "${latest#b}" = "${current#b}" ]
 }
 
+localai_conf_default_version() {
+  local file="$1"
+
+  [ -f "$file" ] || return 1
+  sed -n 's/^LOCALAI_VERSION="${LOCALAI_VERSION:-\([^}"]*\)}".*/\1/p' "$file" | tail -n 1
+}
+
 config_assignment_value() {
   local key="$1"
   local file="$2"

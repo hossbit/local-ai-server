@@ -29,3 +29,13 @@ setup() {
   [ "$status" -eq 0 ]
   [ "$output" = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b9672" ]
 }
+
+@test "LocalAI config version parser ignores already-set shell version" {
+  conf="$BATS_TEST_TMPDIR/localai.conf"
+  printf '%s\n' 'LOCALAI_VERSION="${LOCALAI_VERSION:-1.1.12}"' > "$conf"
+
+  run bash -c 'source "$1"; LOCALAI_VERSION=1.1.11; localai_conf_default_version "$2"' _ "$REPO_DIR/lib/install.sh" "$conf"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "1.1.12" ]
+}
