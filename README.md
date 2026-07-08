@@ -122,7 +122,10 @@ llama-gguf-split --merge first-fragment.gguf merged-model.gguf
 ```
 
 Use `localai suggest` after adding large models to get advisory runtime settings
-based on your installed models, RAM, backend, and detected GPU memory.
+based on your installed models, RAM, backend, and detected GPU memory. It uses
+the actual GGUF file size as the base estimate, not an exact parameter-count
+formula. Runtime memory also depends on context length, KV cache type, batch
+size, backend buffers, and operating-system headroom.
 
 ## Use the server
 
