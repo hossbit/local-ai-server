@@ -110,7 +110,7 @@ COMMON_EXTRA_ARGS=""
 [ -z "$UBATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       --ubatch-size $UBATCH_SIZE"
 [ "$FLASH_ATTN" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --flash-attn"
+      --flash-attn on"
 [ "$JINJA" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       --jinja"
 [ "$MLOCK" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS

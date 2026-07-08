@@ -12,6 +12,12 @@ run_rebuild() {
   bash "$REPO_DIR/rebuild-config.sh"
 }
 
+run_rebuild_gpu_defaults() {
+  LOCALAI_DIR="$TEST_AI_DIR" \
+  LLAMA_CPP_BACKEND=vulkan \
+  bash "$REPO_DIR/rebuild-config.sh"
+}
+
 @test "rebuild-config writes chat model without embeddings flag" {
   touch "$TEST_AI_DIR/models/granite-3.3.gguf"
 
@@ -122,4 +128,13 @@ run_rebuild() {
   grep -q -- '"OLMo-2-1124-13B-Instruct-Q4_K_M":' "$TEST_AI_DIR/conf/config.yaml"
   grep -q -- '"model-2024-release":' "$TEST_AI_DIR/conf/config.yaml"
   [[ "$output" != *"looks like a split GGUF fragment"* ]]
+}
+
+@test "rebuild-config writes flash attention value for new llama.cpp" {
+  touch "$TEST_AI_DIR/models/granite-3.3.gguf"
+
+  run run_rebuild_gpu_defaults
+
+  [ "$status" -eq 0 ]
+  grep -q -- '--flash-attn on' "$TEST_AI_DIR/conf/config.yaml"
 }
