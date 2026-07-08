@@ -130,18 +130,17 @@ models:
 CFG
 
 MODEL_COUNT=0
-for MODEL in "$MODELS_DIR"/*.gguf; do
-  [ -f "$MODEL" ] || continue
-  NAME="$(basename "$MODEL" .gguf)"
+while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
+  [ -n "$NAME" ] || continue
   MODEL_EXTRA_ARGS=""
   if [[ "${NAME,,}" == *qwen3*embedding* ]]; then
       MODEL_EXTRA_ARGS="--embeddings --pooling last"
   elif model_is_embedding_name "$NAME"; then
       MODEL_EXTRA_ARGS="--embeddings"
   fi
-  case "$NAME" in
+  case "$NAME$MODEL_REL" in
     *\"*|*"'"*|*'`'*|*\\*)
-    echo "Skipping unsupported model filename: $(basename "$MODEL")" >&2
+    echo "Skipping unsupported model path: $MODEL_REL" >&2
     continue
       ;;
   esac
@@ -164,6 +163,6 @@ for MODEL in "$MODELS_DIR"/*.gguf; do
 $COMMON_EXTRA_ARGS
 
 MODELCFG
-done
+done < <(localai_model_entries "$MODELS_DIR")
 
 echo "Generated $CONFIG with $MODEL_COUNT model(s)."

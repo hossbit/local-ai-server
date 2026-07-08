@@ -86,7 +86,7 @@ fi
 
 "$BIN_DIR/rebuild-config.sh"
 
-if ! find "$AI_DIR/$LOCALAI_MODELS_SUBDIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
+if ! localai_has_model_entries "$AI_DIR/$LOCALAI_MODELS_SUBDIR"; then
   echo "No GGUF models found in $AI_DIR/$LOCALAI_MODELS_SUBDIR."
   echo "LocalAI will start, but chat requests need a model file and a matching model name."
 fi

@@ -52,6 +52,23 @@ release_asset_digest() {
     <<<"$json" | head -n1 || true
 }
 
+release_api_for_version() {
+  local version="$1"
+  local tag_api="$2"
+  local latest_api="$3"
+
+  if [ "$version" = "latest" ]; then
+    printf '%s\n' "$latest_api"
+    return 0
+  fi
+
+  if [[ "$tag_api" == */tags/latest ]]; then
+    printf '%s/%s\n' "${tag_api%/latest}" "$version"
+  else
+    printf '%s\n' "$tag_api"
+  fi
+}
+
 verify_release_asset() {
   local file="$1"
   local digest="$2"

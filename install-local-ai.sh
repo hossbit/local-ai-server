@@ -121,16 +121,32 @@ install_system_dependencies() {
 }
 
 resolve_llama_cpp_url() {
+  local release_api
+
   log "Finding llama.cpp $LLAMA_CPP_VERSION asset for backend: $LLAMA_CPP_BACKEND"
-  LLAMA_CPP_JSON="$(github_api_get "$LLAMA_CPP_RELEASE_API")"
+  if [ "$LLAMA_CPP_VERSION" = "latest" ]; then
+    LLAMA_CPP_JSON="$(github_api_get "$LLAMA_CPP_LATEST_API")"
+    LLAMA_CPP_VERSION="$(jq -er '.tag_name' <<<"$LLAMA_CPP_JSON")"
+  else
+    release_api="$(release_api_for_version "$LLAMA_CPP_VERSION" "$LLAMA_CPP_RELEASE_API" "$LLAMA_CPP_LATEST_API")"
+    LLAMA_CPP_JSON="$(github_api_get "$release_api")"
+  fi
   LLAMA_CPP_URL="$(release_asset_url "$LLAMA_CPP_JSON" "$LLAMA_CPP_ASSET_RE")"
 
   [ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp asset found for backend '$LLAMA_CPP_BACKEND' in release $LLAMA_CPP_VERSION"
 }
 
 resolve_llama_swap_release() {
+  local release_api
+
   log "Finding llama-swap $LLAMA_SWAP_VERSION asset"
-  LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_RELEASE_API")"
+  if [ "$LLAMA_SWAP_VERSION" = "latest" ]; then
+    LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_LATEST_API")"
+    LLAMA_SWAP_VERSION="$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")"
+  else
+    release_api="$(release_api_for_version "$LLAMA_SWAP_VERSION" "$LLAMA_SWAP_RELEASE_API" "$LLAMA_SWAP_LATEST_API")"
+    LLAMA_SWAP_JSON="$(github_api_get "$release_api")"
+  fi
   LLAMA_SWAP_URL="${LLAMA_SWAP_URL:-$(release_asset_url "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_ASSET_RE")}"
 
   [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found in release $LLAMA_SWAP_VERSION"
@@ -444,7 +460,7 @@ echo "Current versions:"
 echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
 "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo
-if ! find "$MODELS_DIR" -maxdepth 1 -type f -name '*.gguf' -print -quit | grep -q .; then
+if ! localai_has_model_entries "$MODELS_DIR"; then
   echo "No GGUF models found in:"
   echo "  $MODELS_DIR"
   echo

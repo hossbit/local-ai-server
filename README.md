@@ -38,18 +38,8 @@ the configured install directory, which defaults to `~/ai/models`.
 - `sudo` access during installation
 - Enough RAM and VRAM for the model and quantization you choose
 
-RHEL 7/8 users may need to enable EPEL before installing because `jq` is not
-always available in the default enabled repositories.
-
-The installer uses the known compatible releases `llama.cpp b9672` and
-`llama-swap v226`. The separate update script checks for newer releases.
-The default llama.cpp backend is `vulkan`. For CPU-only machines or simple VM
-testing, use `LLAMA_CPP_BACKEND=cpu`; CPU installs use smaller defaults and no
-GPU offload.
-If a non-CPU backend installs but cannot run, the installer retries once with
-the CPU backend by default. Set `LOCALAI_CPU_FALLBACK=0` to disable that retry.
-
-The installer can install required packages with `apt-get`, `dnf`, or `yum`.
+The installer downloads current `llama.cpp` and `llama-swap` releases and can
+install required packages with `apt-get`, `dnf`, or `yum`.
 
 ## Install
 
@@ -59,61 +49,14 @@ One-line install:
 curl -fsSL https://hossbit.github.io/localai/install.sh | bash
 ```
 
-Custom install directory:
+CPU-only install:
 
 ```bash
-curl -fsSL https://hossbit.github.io/localai/install.sh | LOCALAI_DIR="$HOME/my-ai" bash
+curl -fsSL https://hossbit.github.io/localai/install.sh | LLAMA_CPP_BACKEND=cpu bash
 ```
 
-Manual install:
-
-```bash
-git clone https://github.com/hossbit/local-ai-server.git
-cd local-ai-server
-chmod +x ./*.sh
-./install-local-ai.sh
-```
-
-The installer asks where to install LocalAI:
-
-```text
-LocalAI install directory [~/ai]:
-```
-
-Press Enter to use the default `~/ai`. To choose the path without a prompt, set
-`LOCALAI_DIR`:
-
-```bash
-LOCALAI_DIR=~/my-ai ./install-local-ai.sh
-```
-
-Or pass `--dir`:
-
-```bash
-./install-local-ai.sh --dir ~/my-ai
-```
-
-Choose a llama.cpp backend with `LLAMA_CPP_BACKEND`. The default is `vulkan`.
-
-```bash
-LLAMA_CPP_BACKEND=cpu ./install-local-ai.sh
-LLAMA_CPP_BACKEND=vulkan ./install-local-ai.sh
-LLAMA_CPP_BACKEND=rocm ./install-local-ai.sh
-LLAMA_CPP_BACKEND=openvino ./install-local-ai.sh
-LLAMA_CPP_BACKEND=sycl-fp16 ./install-local-ai.sh
-LLAMA_CPP_BACKEND=sycl-fp32 ./install-local-ai.sh
-```
-
-The installer does not start the server automatically. If no `.gguf` files are
-found in the models directory, it prints a warning because chat requests need a
-model. Add at least one model, then use the service commands below to start and
-check LocalAI.
-
-To start it automatically when you log in:
-
-```bash
-systemctl --user enable --now localai
-```
+The default install directory is `~/ai`. See the wiki for custom directories,
+manual installs, backend selection, and pinned component versions.
 
 ## Add a model
 
@@ -123,88 +66,21 @@ Place one or more `.gguf` files in:
 ~/ai/models
 ```
 
-If you installed somewhere else, use that directory's `models` folder instead.
-
-For example, with the Hugging Face CLI:
-
-```bash
-python3 -m pip install --user huggingface_hub
-hf auth login
-
-hf download bartowski/Qwen2.5-Coder-7B-Instruct-GGUF \
-  Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf \
-  --local-dir ~/ai/models
-```
-
-Some model repositories require a Hugging Face account and read token. See
-[Hugging Face access tokens](https://huggingface.co/docs/hub/security-tokens).
-
-The model ID exposed by the API is the filename without `.gguf`. For example:
-
-```text
-Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
-```
-
-becomes:
-
-```text
-Qwen2.5-Coder-7B-Instruct-Q4_K_M
-```
+Split GGUF models are supported when shards use llama.cpp naming, such as
+`name-00001-of-00003.gguf`. For many split models, use one folder per model.
+The exposed model ID is the filename without `.gguf`, or the folder name when a
+folder contains one model.
 
 ## Use the server
 
-Read the selected port:
+Start LocalAI:
 
 ```bash
-PORT=$(cat ~/ai/conf/port)
+localai start
+localai check
 ```
 
-For a custom install directory:
-
-```bash
-PORT=$(cat ~/my-ai/conf/port)
-```
-
-List available models:
-
-```bash
-curl "http://127.0.0.1:${PORT}/v1/models"
-```
-
-Send a chat request:
-
-```bash
-MODEL="Qwen2.5-Coder-7B-Instruct-Q4_K_M"
-
-curl "http://127.0.0.1:${PORT}/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"${MODEL}\",
-    \"messages\": [
-      {\"role\": \"user\", \"content\": \"What is Linux?\"}
-    ]
-  }"
-```
-
-Python with the OpenAI SDK:
-
-```python
-from pathlib import Path
-from openai import OpenAI
-
-port = Path.home().joinpath("ai/conf/port").read_text().strip()
-client = OpenAI(base_url=f"http://127.0.0.1:{port}/v1", api_key="local")
-
-response = client.chat.completions.create(
-    model="Qwen2.5-Coder-7B-Instruct-Q4_K_M",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-
-print(response.choices[0].message.content)
-```
-
-The local server does not validate `api_key`, but OpenAI client libraries
-usually require a non-empty value.
+The API is available at `http://127.0.0.1:$(cat ~/ai/conf/port)/v1`.
 
 ## Service and helper commands
 
@@ -217,109 +93,19 @@ Most users only need these:
 | `localai restart` | Restart the service. |
 | `localai status` | Show service, process, API, and port status. |
 | `localai check` | Check the API and model list. |
-| `localai logs` | Follow LocalAI logs. |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
-| `localai load MODEL` | Warm one model, for example `localai load Qwen2.5-Coder-7B-Instruct-Q4_K_M`. |
+| `localai suggest` | Suggest runtime settings from installed model sizes and detected hardware. |
+| `localai load MODEL` | Warm one model. |
 | `localai unload MODEL` | Release one loaded model. |
-| `localai unload all` | Release all loaded models. |
 | `localai update` | Update installed components. |
 | `localai version` | Show component versions. |
 | `localai uninstall` | Remove helper files; models are kept by default. |
 
-Advanced forms:
+## Documentation
 
-| Command | Purpose |
-| --- | --- |
-| `localai check --chat` | Also send a tiny chat request. |
-| `localai load all` | Warm every model; use only when you have enough memory. |
-| `localai update --no-start` | Update and leave the service stopped. |
-| `LLAMA_CPP_BACKEND=cpu localai update` | Switch backend during update. |
-| `LOCALAI_CTX_SIZE=8192 LOCALAI_N_GPU_LAYERS=20 localai start` | Override runtime settings for one start. |
-| `LOCALAI_FLASH_ATTN=1 LOCALAI_PARALLEL=2 localai start` | Enable optional llama-server tuning for one start. |
-| `localai uninstall --remove-models` | Also remove downloaded models. |
-| `localai uninstall --dir ~/my-ai` | Uninstall from a custom directory. |
-| `localai uninstall --remove-llama-swap` | Also remove the per-user `llama-swap` binary. |
-
-## Configuration
-
-Shared defaults live in:
-
-```text
-localai.conf          # source default
-~/ai/conf/localai.conf # installed copy
-```
-
-This file contains install paths, service names, port settings, and llama.cpp
-runtime defaults. Environment variables still override the config for one
-command.
-
-`bin/rebuild-config.sh` creates `conf/config.yaml` from every `.gguf` file in
-the install directory's `models` folder. It runs automatically whenever the
-server starts.
-
-Default runtime settings are:
-
-- Vulkan and other GPU-capable backends: context size `16384`, GPU layers `8`
-- CPU backend: context size `4096`, GPU layers `0`
-- Threads: detected with `nproc`, falling back to `6`
-- KV cache: `f16`
-- Parallel slots: `2` for GPU-capable backends, `1` for CPU
-- Jinja chat templates: enabled
-- Flash attention: enabled for non-CPU backends, disabled for CPU
-- Mlock, no-mmap, batch size, and ubatch size: disabled unless configured
-- Idle model timeout: `900` seconds
-
-Useful llama-server tuning variables:
-
-| Variable | Effect |
-| --- | --- |
-| `LOCALAI_CTX_SIZE` | Sets `--ctx-size`. |
-| `LOCALAI_N_GPU_LAYERS` | Sets `--n-gpu-layers`. |
-| `LOCALAI_THREADS` | Sets `-t`. |
-| `LOCALAI_CACHE_TYPE_K` / `LOCALAI_CACHE_TYPE_V` | Set KV cache quantization. |
-| `LOCALAI_PARALLEL` | Adds `--parallel` when set. |
-| `LOCALAI_BATCH_SIZE` | Adds `--batch-size` when set. |
-| `LOCALAI_UBATCH_SIZE` | Adds `--ubatch-size` when set. |
-| `LOCALAI_FLASH_ATTN` | Adds `--flash-attn` when set to `1`. |
-| `LOCALAI_JINJA` | Adds `--jinja` when set to `1`; default is `1`. |
-| `LOCALAI_MLOCK` | Adds `--mlock` when set to `1`. |
-| `LOCALAI_NO_MMAP` | Adds `--no-mmap` when set to `1`. |
-| `LOCALAI_EXTRA_LLAMA_ARGS` | Appends extra single-line llama-server flags. |
-
-Override any of these for one start with the start command form shown in the
-service command table, or edit `~/ai/conf/localai.conf` to make the setting
-persistent.
-
-## Troubleshooting
-
-Check the configured port and models:
-
-```bash
-cat ~/ai/conf/port
-curl "http://127.0.0.1:$(cat ~/ai/conf/port)/v1/models"
-```
-
-Replace `~/ai` with your selected install directory if needed.
-
-Check GPU detection:
-
-```bash
-~/ai/bin/llama-server --list-devices
-```
-
-Check logs:
-
-```bash
-tail -n 100 ~/ai/logs/llama-swap.log
-```
-
-If a Hugging Face download returns `401 Unauthorized`:
-
-```bash
-hf auth logout
-hf auth login
-hf auth whoami
-```
+- [ComAI And LocalAI](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/ComAI-and-LocalAI.md)
+- [Local AI Service](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Local-AI-Service.md)
+- [Troubleshooting](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Troubleshooting.md)
 
 ## Security
 
