@@ -153,7 +153,17 @@ localai_conf_default_version() {
   local file="$1"
 
   [ -f "$file" ] || return 1
-  sed -n 's/^LOCALAI_VERSION="${LOCALAI_VERSION:-\([^}"]*\)}".*/\1/p' "$file" | tail -n 1
+  awk -F':-' '
+    /^LOCALAI_VERSION="/ {
+      value = $2
+      sub(/}".*$/, "", value)
+    }
+    END {
+      if (value != "") {
+        print value
+      }
+    }
+  ' "$file"
 }
 
 config_assignment_value() {

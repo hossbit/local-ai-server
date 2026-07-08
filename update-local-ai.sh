@@ -143,7 +143,9 @@ print_current_versions() {
   echo
   echo "Current versions:"
   if [ -f "$CONF_DIR/localai.conf" ]; then
-    localai_version="$(localai_conf_default_version "$CONF_DIR/localai.conf" || true)"
+    if ! localai_version="$(localai_conf_default_version "$CONF_DIR/localai.conf")"; then
+      localai_version=""
+    fi
     echo "LocalAI: ${localai_version:-$LOCALAI_VERSION}"
   fi
   "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
