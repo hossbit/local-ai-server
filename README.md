@@ -25,7 +25,7 @@ the configured install directory, which defaults to `~/ai/models`.
 ## Why Local AI Server?
 
 | Feature                                | **Local AI Server** |         Ollama         |      LM Studio     | OpenAI / Gemini |
-| -------------------------------------- | :-----------------: | :--------------------: | :----------------: | :-------------: |
+| -------------------------------------- | :-----------------: | :--------------------: | :-----------------: | :-------------: |
 | Runs fully locally and privately       |          ✅          |            ✅           |          ✅         |        ❌        |
 | Designed for Linux servers             |          ✅          |            ✅           | ⚠️ Desktop-focused |        ❌        |
 | Uses your existing GGUF files directly |          ✅          |   ⚠️ Import required   |          ✅         |        ❌        |
@@ -34,10 +34,13 @@ the configured install directory, which defaults to `~/ai/models`.
 | User-level systemd service             |          ✅          | ⚠️ Usually system-wide |          ❌         |  Not applicable |
 | Transparent `llama.cpp` configuration |          ✅          |      ⚠️ Abstracted     |   ⚠️ GUI-managed   |        ❌        |
 | No API fees                            |          ✅          |            ✅           |          ✅         |        ❌        |
+| Pure Bash, no extra runtime            |          ✅          |  ⚠️ Ships Go binary   | ⚠️ Electron app    |        ❌        |
+| Readable scripts, easy to audit        |          ✅          |  ⚠️ Compiled binary   |  ⚠️ GUI app        |        ❌        |
+| Light footprint, fits minimal VPS      |          ✅          |   ⚠️ Moderate         |  ⚠️ Heavy desktop  |        ❌        |
 
 ### Main Advantage
 
-> **Local AI Server gives Linux users a private, lightweight and transparent way to run multiple GGUF models through one OpenAI-compatible API, with automatic model switching and systemd service management.**
+> **Local AI Server gives Linux users a private, lightweight and transparent way to run multiple GGUF models through one OpenAI-compatible API, with automatic model switching and systemd service management — all in readable Bash scripts with no runtime to install.**
 
 ## What it provides
 
