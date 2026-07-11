@@ -10,6 +10,7 @@ Commands:
   restart     Restart the LocalAI service
   status      Show service status
   check       Check process, port, and API health
+              Use --chat for a chat completion round-trip
   logs        Follow service logs
   models      List installed GGUF models
   suggest     Suggest runtime settings for installed models

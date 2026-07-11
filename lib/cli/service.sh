@@ -48,7 +48,7 @@ status_cmd() {
 }
 
 check_cmd() {
-  local port model candidate models_json chat=0
+  local base model candidate models_json chat_response chat=0
 
   if [ "${1:-}" = "--chat" ]; then
     chat=1
@@ -56,7 +56,6 @@ check_cmd() {
     fail "usage: localai check [--chat]"
   fi
 
-  port="$([ -f "$PORT_FILE" ] && cat "$PORT_FILE" || printf '%s' "$LOCALAI_DEFAULT_PORT")"
   pid_status
   localai_model_entries "$MODELS_DIR" >/dev/null
 
@@ -64,14 +63,17 @@ check_cmd() {
     fail "curl and jq are required for API checks"
   fi
 
+  base="$(api_base_url)"
+
   echo
   echo "API models:"
-  if ! models_json="$(curl --max-time 10 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/models")"; then
-    fail "API did not respond at http://${LOCALAI_LISTEN_HOST}:${port}/v1/models"
+  if ! models_json="$(curl --max-time 10 -fsS "$base/v1/models")"; then
+    fail "API did not respond at $base/v1/models"
   fi
   jq -r '.data[]?.id' <<<"$models_json"
 
   if [ "$chat" -eq 1 ]; then
+    model=""
     while IFS= read -r candidate; do
       if [ -z "$candidate" ] || [ "$candidate" = "null" ]; then
         continue
@@ -85,11 +87,13 @@ check_cmd() {
       fail "no model is available for chat check"
     fi
     echo
-    echo "Chat check:"
-    curl --max-time 120 -fsS "http://${LOCALAI_LISTEN_HOST}:${port}/v1/chat/completions" \
+    echo "Chat check ($model):"
+    if ! chat_response="$(curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
       -H "Content-Type: application/json" \
-      -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK\"}],\"max_tokens\":8}" |
-      jq -r '.choices[0].message.content // .choices[0].text // .'
+      -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 8, stream: false}')")"; then
+      fail "chat completion failed for $model at $base/v1/chat/completions"
+    fi
+    jq -r '.choices[0].message.content // .choices[0].text // .' <<<"$chat_response"
   fi
 }
 
