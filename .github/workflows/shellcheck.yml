@@ -1,0 +1,18 @@
+name: ShellCheck
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x \
+            localai install.sh install-local-ai.sh start.sh stop.sh \
+            rebuild-config.sh uninstall-local-ai.sh update-local-ai.sh \
+            lib/*.sh lib/cli/*.sh
