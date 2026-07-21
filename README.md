@@ -87,11 +87,11 @@ LocalAI discovers GGUF files from:
 ```
 
 Download a `.gguf` model from a source such as Hugging Face, then put it in that
-directory. After adding or removing models, restart LocalAI so it regenerates
-the config, then list the detected models:
+directory. After adding or removing models, reload LocalAI so it regenerates
+the config and restarts only if it changed, then list the detected models:
 
 ```bash
-localai restart
+localai reload
 localai models
 ```
 
@@ -167,6 +167,7 @@ Most users only need these:
 | `localai start` | Start the service. |
 | `localai stop` | Unload loaded models, then stop the service. |
 | `localai restart` | Restart the service. |
+| `localai reload` | Rescan models and restart only if `config.yaml` would change; prints added/removed models. |
 | `localai status` | Show service, process, API, and port status. |
 | `localai check` | Check the API and model list. |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
