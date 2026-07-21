@@ -55,6 +55,7 @@ AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
+CONFIG="$CONF_DIR/$LOCALAI_CONFIG_FILE"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
 PORT_FILE="$CONF_DIR/$LOCALAI_PORT_FILE"
 PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
@@ -77,6 +78,9 @@ fi
 case "$COMMAND" in
   start|stop|restart)
     service_cmd "$COMMAND"
+    ;;
+  reload)
+    reload_cmd "$@"
     ;;
   status)
     status_cmd

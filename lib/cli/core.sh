@@ -8,6 +8,7 @@ Commands:
   start       Start the LocalAI service
   stop        Stop the LocalAI service
   restart     Restart the LocalAI service
+  reload      Rescan models and restart only if config.yaml would change
   status      Show service status
   check       Check process, port, and API health
               Use --chat for a chat completion round-trip
