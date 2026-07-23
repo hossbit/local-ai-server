@@ -635,6 +635,19 @@ api_key_active_secrets() {
   done < <(api_key_registry_rows "$file")
 }
 
+# api_key_active_named_secrets: like api_key_active_secrets, but each line is
+# "name<TAB>secret" so rebuild-config.sh can label keys in the generated
+# config.yaml without re-reading the registry itself.
+api_key_active_named_secrets() {
+  local file="$1"
+  local id name created status secret
+
+  while IFS=$'\t' read -r id name created status secret; do
+    [ "$status" = active ] || continue
+    printf '%s\t%s\n' "$name" "$secret"
+  done < <(api_key_registry_rows "$file")
+}
+
 # api_key_registry_write_atomic FILE CONTENT: temp file in the same
 # directory, mode 0600, atomic rename. CONTENT should already include the
 # trailing newline convention (printf adds one).

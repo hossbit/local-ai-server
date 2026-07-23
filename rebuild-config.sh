@@ -180,7 +180,7 @@ if ! api_key_registry_validate "$API_KEY_REGISTRY"; then
   exit 1
 fi
 
-ACTIVE_API_KEYS="$(api_key_active_secrets "$API_KEY_REGISTRY")"
+ACTIVE_API_KEYS="$(api_key_active_named_secrets "$API_KEY_REGISTRY")"
 ACTIVE_API_KEY_COUNT=0
 [ -z "$ACTIVE_API_KEYS" ] || ACTIVE_API_KEY_COUNT="$(grep -c . <<<"$ACTIVE_API_KEYS")"
 
@@ -223,9 +223,9 @@ if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
   {
     echo
     echo "apiKeys:"
-    while IFS= read -r ACTIVE_KEY; do
+    while IFS=$'\t' read -r ACTIVE_NAME ACTIVE_KEY; do
       [ -n "$ACTIVE_KEY" ] || continue
-      printf '  - "%s"\n' "$ACTIVE_KEY"
+      printf '  # %s\n  - "%s"\n' "$ACTIVE_NAME" "$ACTIVE_KEY"
     done <<<"$ACTIVE_API_KEYS"
   } >> "$CONFIG"
 fi
