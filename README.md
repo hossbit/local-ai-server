@@ -244,11 +244,12 @@ Behavior notes:
   generation refuse to produce an unauthenticated config at all.
 - **Lost key**: there's no recovery; `rotate` the key (or `revoke` it and
   `create` a new one).
-- Keys live in `conf/api-keys.tsv` (mode `0600`, outside Git). `config.yaml`
-  is also `0600` once it can contain a plaintext key. Each key is written
-  there with a `# name` comment above it, so the file stays identifiable
-  with several keys active — manage keys through `localai key ...`, not by
-  hand-editing `config.yaml`.
+- Keys live in `conf/api-keys.tsv` (mode `0600`, outside Git). Active keys
+  are also rendered into `conf/keys.d/keys.yaml` (mode `0600`), each with a
+  `# name` comment above it, and merged into the running config via
+  llama-swap's `--config-dir` — `config.yaml` itself never contains a
+  plaintext key. Manage keys through `localai key ...`, not by hand-editing
+  either file; `keys.yaml` is removed entirely once no keys are active.
 - Creating, revoking, or rotating a key restarts the running service so the
   change takes effect immediately (same "only restart if something actually
   changed" rule `localai reload` already uses for models).

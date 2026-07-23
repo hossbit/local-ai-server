@@ -55,29 +55,44 @@ api_key_registry_content_from_rows() {
 # service isn't running, it just refreshes config.yaml for the next start.
 key_activate() {
   local rebuild="$BIN_DIR/rebuild-config.sh"
-  local candidate
+  local candidate candidate_keys config_same=0 keys_same=0
 
   [ -x "$rebuild" ] || { echo "Error: missing helper: $rebuild" >&2; return 1; }
 
   candidate="$(mktemp "${TMPDIR:-/tmp}/localai-key.XXXXXX")" || return 1
+  candidate_keys="$(mktemp "${TMPDIR:-/tmp}/localai-key-keys.XXXXXX")" || {
+    rm -f "$candidate"
+    return 1
+  }
   # shellcheck disable=SC2064
-  trap "rm -f '$candidate'" RETURN
+  trap "rm -f '$candidate' '$candidate_keys'" RETURN
 
-  if ! "$rebuild" "$candidate" >/dev/null; then
+  if ! "$rebuild" "$candidate" "$candidate_keys" >/dev/null; then
     echo "Error: failed to rebuild configuration from the updated key registry." >&2
     return 1
   fi
 
-  if [ -f "$CONFIG" ] && diff -q "$CONFIG" "$candidate" >/dev/null 2>&1; then
-    return 0
+  [ -f "$CONFIG" ] && diff -q "$CONFIG" "$candidate" >/dev/null 2>&1 && config_same=1
+  if [ -f "$KEYS_FILE" ] || [ -f "$candidate_keys" ]; then
+    [ -f "$KEYS_FILE" ] && [ -f "$candidate_keys" ] &&
+      diff -q "$KEYS_FILE" "$candidate_keys" >/dev/null 2>&1 && keys_same=1
+  else
+    keys_same=1
   fi
+  [ "$config_same" -eq 1 ] && [ "$keys_same" -eq 1 ] && return 0
 
   if pid_file_matches_process "$PID_FILE" "$PID_START_FILE" || has_user_service; then
     service_cmd restart
   else
-    mkdir -p "$CONF_DIR"
+    mkdir -p "$CONF_DIR" "$KEYS_DIR"
     cp "$candidate" "$CONFIG"
     chmod 600 "$CONFIG" 2>/dev/null || true
+    if [ -f "$candidate_keys" ]; then
+      cp "$candidate_keys" "$KEYS_FILE"
+      chmod 600 "$KEYS_FILE" 2>/dev/null || true
+    else
+      rm -f "$KEYS_FILE"
+    fi
     echo "Configuration updated; it will take effect on the next 'localai start'."
   fi
 }

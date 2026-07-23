@@ -36,7 +36,7 @@ reload_report_model_diff() {
 }
 
 reload_cmd() {
-  local rebuild candidate
+  local rebuild candidate candidate_keys config_same=0 keys_same=0
 
   [ "$#" -eq 0 ] || fail "usage: localai reload"
 
@@ -44,12 +44,21 @@ reload_cmd() {
   [ -x "$rebuild" ] || fail "missing helper: $rebuild"
 
   candidate="$(mktemp "${TMPDIR:-/tmp}/localai-reload.XXXXXX")"
+  candidate_keys="$(mktemp "${TMPDIR:-/tmp}/localai-reload-keys.XXXXXX")"
   # shellcheck disable=SC2064
-  trap "rm -f '$candidate'" EXIT
+  trap "rm -f '$candidate' '$candidate_keys'" EXIT
 
-  "$rebuild" "$candidate" >/dev/null
+  "$rebuild" "$candidate" "$candidate_keys" >/dev/null
 
-  if [ -f "$CONFIG" ] && diff -q "$CONFIG" "$candidate" >/dev/null 2>&1; then
+  [ -f "$CONFIG" ] && diff -q "$CONFIG" "$candidate" >/dev/null 2>&1 && config_same=1
+  if [ -f "$KEYS_FILE" ] || [ -f "$candidate_keys" ]; then
+    [ -f "$KEYS_FILE" ] && [ -f "$candidate_keys" ] &&
+      diff -q "$KEYS_FILE" "$candidate_keys" >/dev/null 2>&1 && keys_same=1
+  else
+    keys_same=1
+  fi
+
+  if [ "$config_same" -eq 1 ] && [ "$keys_same" -eq 1 ]; then
     echo "No model changes detected in $MODELS_DIR; config.yaml is already up to date."
     echo "LocalAI was not restarted."
     return 0

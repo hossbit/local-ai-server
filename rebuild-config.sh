@@ -34,6 +34,12 @@ CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
 CONFIG="${1:-$CONF_DIR/$LOCALAI_CONFIG_FILE}"
 MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 OVERRIDES_DIR="$CONF_DIR/${MODELS_OVERRIDE_SUBDIR:-$LOCALAI_MODELS_OVERRIDE_SUBDIR}"
+# KEYS_DIR is always the real install location (it's what llama-swap's
+# --config-dir points at and must exist regardless of which file $2 below
+# targets); KEYS_FILE is the write target and defaults to the live file but
+# can be pointed at a candidate/temp path the same way $CONFIG/$1 can.
+KEYS_DIR="$CONF_DIR/${LOCALAI_KEYS_SUBDIR:-keys.d}"
+KEYS_FILE="${2:-$KEYS_DIR/${LOCALAI_KEYS_FILE:-keys.yaml}}"
 BIN="$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-server"
 CTX_SIZE="${CTX_SIZE:-$LOCALAI_CTX_SIZE}"
 N_GPU_LAYERS="${N_GPU_LAYERS:-$LOCALAI_N_GPU_LAYERS}"
@@ -166,7 +172,7 @@ COMMON_EXTRA_ARGS=""
 [ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       $EXTRA_LLAMA_ARGS"
 
-mkdir -p "$CONF_DIR" "$MODELS_DIR" "$OVERRIDES_DIR"
+mkdir -p "$CONF_DIR" "$MODELS_DIR" "$OVERRIDES_DIR" "$KEYS_DIR"
 
 # API_KEY_REGISTRY is validated before anything is written to $CONFIG, so a
 # corrupted registry aborts the rebuild instead of silently generating an
@@ -219,15 +225,22 @@ globalTTL: $LOCALAI_GLOBAL_TTL
 CFG
 chmod 600 "$CONFIG" 2>/dev/null || true
 
+# Active keys are rendered into their own file (KEYS_FILE) and merged into
+# the running config by llama-swap's --config-dir, rather than embedded in
+# $CONFIG, so config.yaml (models/tuning) and plaintext secrets stay in
+# separate files. Removed entirely -- not left empty -- when there are no
+# active keys, so a stale keys file can never be merged in by mistake.
 if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
   {
-    echo
     echo "apiKeys:"
     while IFS=$'\t' read -r ACTIVE_NAME ACTIVE_KEY; do
       [ -n "$ACTIVE_KEY" ] || continue
       printf '  # %s\n  - "%s"\n' "$ACTIVE_NAME" "$ACTIVE_KEY"
     done <<<"$ACTIVE_API_KEYS"
-  } >> "$CONFIG"
+  } > "$KEYS_FILE"
+  chmod 600 "$KEYS_FILE" 2>/dev/null || true
+else
+  rm -f "$KEYS_FILE"
 fi
 
 if [ "$METRICS_ENABLED" = "1" ]; then

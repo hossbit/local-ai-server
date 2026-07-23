@@ -37,6 +37,7 @@ PID_FILE="$CONF_DIR/$LOCALAI_PID_FILE"
 PID_START_FILE="$CONF_DIR/$LOCALAI_PID_FILE.start"
 LOG_FILE="$AI_DIR/$LOCALAI_LOGS_SUBDIR/llama-swap.log"
 CONFIG_FILE="$CONF_DIR/$LOCALAI_CONFIG_FILE"
+KEYS_DIR="$CONF_DIR/$LOCALAI_KEYS_SUBDIR"
 resolve_llama_swap_paths
 
 fail_start() {
@@ -94,6 +95,7 @@ fi
 nohup "$LLAMA_SWAP_BIN" \
   --listen "${LOCALAI_LISTEN_HOST}:${PORT}" \
   --config "$CONFIG_FILE" \
+  --config-dir "$KEYS_DIR" \
   > "$LOG_FILE" 2>&1 &
 
 PID=$!
