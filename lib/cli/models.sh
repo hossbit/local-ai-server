@@ -3,6 +3,9 @@
 models_cmd() {
   local loaded_models="" loaded_available=0 loaded_checked=0 id rel path status loaded
   local -A loaded_model_set=()
+  local -a col_model=() col_type=() col_size=() col_status=() col_file=()
+  local model_type model_bytes size_display use_color=0 loaded_count=0
+  local w_model=5 w_type=4 w_size=4 w_status=6 i status_display
 
   if [ ! -d "$MODELS_DIR" ]; then
     echo "Models directory does not exist: $MODELS_DIR"
@@ -25,23 +28,64 @@ models_cmd() {
     fi
   fi
 
+  [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && use_color=1
+
   while IFS=$'\t' read -r id rel path; do
     [ -n "$id" ] || continue
-    status=""
+
+    if [[ "${id,,}" == *qwen3*embedding* ]] || model_is_embedding_name "$id"; then
+      model_type="embedding"
+    else
+      model_type="chat"
+    fi
+
+    model_bytes="$(localai_model_bytes "$path")"
+    size_display="$(format_bytes_gib "$model_bytes")"
+
     if [ "$loaded_available" -eq 1 ]; then
       if [[ -n "${loaded_model_set[$id]+x}" || -n "${loaded_model_set[$rel]+x}" ]]; then
-        status=" [loaded]"
+        status="loaded"
+        loaded_count=$((loaded_count + 1))
       else
-        status=" [not loaded]"
+        status="not loaded"
       fi
+    elif [ "$loaded_checked" -eq 1 ]; then
+      status="unknown"
+    else
+      status="-"
     fi
-    printf '%s -> %s%s\n' "$id" "$rel" "$status"
+
+    col_model+=("$id")
+    col_type+=("$model_type")
+    col_size+=("$size_display")
+    col_status+=("$status")
+    col_file+=("$rel")
+
+    [ "${#id}" -le "$w_model" ] || w_model="${#id}"
+    [ "${#model_type}" -le "$w_type" ] || w_type="${#model_type}"
+    [ "${#size_display}" -le "$w_size" ] || w_size="${#size_display}"
+    [ "${#status}" -le "$w_status" ] || w_status="${#status}"
   done < <(localai_model_entries "$MODELS_DIR")
 
-  if [ "$loaded_checked" -eq 1 ] && [ "$loaded_available" -eq 0 ]; then
+  printf "%-${w_model}s  %-${w_type}s  %-${w_size}s  %-${w_status}s  %s\n" \
+    "MODEL" "TYPE" "SIZE" "STATUS" "FILE"
+
+  for ((i = 0; i < ${#col_model[@]}; i++)); do
+    status_display="$(printf "%-${w_status}s" "${col_status[i]}")"
+    if [ "$use_color" -eq 1 ] && [ "${col_status[i]}" = "loaded" ]; then
+      status_display=$'\033[32m'"$status_display"$'\033[0m'
+    fi
+    printf "%-${w_model}s  %-${w_type}s  %-${w_size}s  %s  %s\n" \
+      "${col_model[i]}" "${col_type[i]}" "${col_size[i]}" "$status_display" "${col_file[i]}"
+  done
+
+  if [ "$loaded_available" -eq 1 ]; then
+    echo
+    echo "$loaded_count of ${#col_model[@]} model(s) loaded"
+  elif [ "$loaded_checked" -eq 1 ]; then
     echo
     echo "Loaded state unavailable: API is not reachable at $(api_base_url)/running"
-  elif [ "$loaded_checked" -eq 0 ]; then
+  else
     echo
     echo "Loaded state unavailable: curl and jq are required"
   fi

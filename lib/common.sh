@@ -81,6 +81,139 @@ port_is_listening() {
   ' /proc/net/tcp /proc/net/tcp6 2>/dev/null
 }
 
+system_ram_bytes() {
+  if [ -n "${LOCALAI_SUGGEST_RAM_BYTES:-}" ]; then
+    printf '%s\n' "$LOCALAI_SUGGEST_RAM_BYTES"
+    return 0
+  fi
+
+  awk '/MemTotal:/ { print $2 * 1024; exit }' /proc/meminfo 2>/dev/null || printf '0\n'
+}
+
+gpu_vram_bytes() {
+  local mib bytes candidate max_bytes=0
+
+  if [ -n "${LOCALAI_SUGGEST_VRAM_BYTES:-}" ]; then
+    printf '%s\n' "$LOCALAI_SUGGEST_VRAM_BYTES"
+    return 0
+  fi
+
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    mib="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk 'NR == 1 {print int($1); exit}')"
+    if [ -n "$mib" ] && [ "$mib" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$((mib * 1024 * 1024))"
+      return 0
+    fi
+  fi
+
+  if command -v rocm-smi >/dev/null 2>&1; then
+    bytes="$(rocm-smi --showmeminfo vram 2>/dev/null | awk '/Total Memory.*\(B\)/ {print int($NF); exit}')"
+    if [ -n "$bytes" ] && [ "$bytes" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$bytes"
+      return 0
+    fi
+  fi
+
+  for candidate in /sys/class/drm/card*/device/mem_info_vram_total; do
+    [ -r "$candidate" ] || continue
+    bytes="$(cat "$candidate" 2>/dev/null || printf '0')"
+    if [ -n "$bytes" ] && [ "$bytes" -gt "$max_bytes" ] 2>/dev/null; then
+      max_bytes="$bytes"
+    fi
+  done
+  if [ "$max_bytes" -gt 0 ] 2>/dev/null; then
+    printf '%s\n' "$max_bytes"
+    return 0
+  fi
+
+  if command -v vulkaninfo >/dev/null 2>&1; then
+    mib="$(vulkaninfo 2>/dev/null | awk '
+      /heap [0-9]+:/ && /size =/ {
+        value = $0
+        sub(/^.*size = /, "", value)
+        split(value, parts, " ")
+        amount = parts[1] + 0
+        unit = parts[2]
+        if (unit ~ /GiB/) amount *= 1024
+        if (unit ~ /KiB/) amount /= 1024
+        if (amount > max) max = amount
+      }
+      END { if (max > 0) print int(max) }
+    ')"
+    if [ -n "$mib" ] && [ "$mib" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$((mib * 1024 * 1024))"
+      return 0
+    fi
+  fi
+
+  printf '0\n'
+}
+
+installed_backend() {
+  if [ -n "${LOCALAI_SUGGEST_BACKEND:-}" ]; then
+    printf '%s\n' "$LOCALAI_SUGGEST_BACKEND"
+  elif [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+    cat "$CONF_DIR/$LOCALAI_BACKEND_FILE"
+  else
+    printf '%s\n' "${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
+  fi
+}
+
+backend_uses_gpu_layers() {
+  case "$1" in
+    cpu) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# compute_model_runtime_defaults: prints "ctx\tgpu_layers\tflash\tcache_k\tcache_v"
+# for a model given its size, detected RAM/VRAM, backend, and whether the
+# installed llama-server supports '-ngl auto' (5th arg; defaults to 1/yes).
+# gpu_layers is empty when the backend doesn't use the GPU, or when 'auto'
+# isn't supported, so callers fall back to their own configured default.
+#
+# gpu_layers uses llama-server's own 'auto' fit mode (its default since it
+# gained free-VRAM-aware layer fitting) rather than a byte-count guess here:
+# forcing a specific number (e.g. via a "does it fit" heuristic) disables
+# llama.cpp's own fit-to-free-memory logic and can OOM on models that would
+# otherwise have partially offloaded successfully. Older pinned llama.cpp
+# builds may predate 'auto', hence the capability flag.
+compute_model_runtime_defaults() {
+  local model_bytes="$1" ram_bytes="$2" vram_bytes="$3" backend="$4"
+  local ngl_auto_supported="${5:-1}"
+  # gpu_layers uses "-" rather than an empty string as its not-applicable
+  # sentinel: bash's `read` collapses consecutive tab delimiters (tab is
+  # "IFS whitespace"), so a genuinely empty field between two tabs silently
+  # shifts every field after it over by one for the caller's `read`.
+  local ctx=8192 gpu_layers=- flash=0 cache_k=f16 cache_v=f16
+
+  if [ "$ram_bytes" -ge $((96 * 1024 * 1024 * 1024)) ]; then
+    ctx=16384
+  fi
+  if [ "$model_bytes" -ge $((80 * 1024 * 1024 * 1024)) ]; then
+    ctx=4096
+  fi
+
+  if backend_uses_gpu_layers "$backend"; then
+    flash=1
+    cache_k=q8_0
+    cache_v=q8_0
+    [ "$ngl_auto_supported" != "1" ] || gpu_layers=auto
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ctx" "$gpu_layers" "$flash" "$cache_k" "$cache_v"
+}
+
+# llama_server_supports_ngl_auto: checks whether a llama-server binary
+# accepts '-ngl auto'/'-ngl all' (added once llama.cpp gained free-VRAM-aware
+# layer fitting). Older pinned releases (see LLAMA_CPP_VERSION) may not.
+llama_server_supports_ngl_auto() {
+  local bin="$1"
+
+  [ -x "$bin" ] || return 1
+  "$bin" --help 2>&1 | grep -A1 -- '--n-gpu-layers N' | grep -q "'auto'"
+}
+
 model_is_embedding_name() {
   local model="${1,,}"
 
@@ -152,6 +285,12 @@ gguf_model_file_is_primary() {
   return 0
 }
 
+gguf_model_file_is_mmproj() {
+  local filename="${1,,}"
+
+  [[ "$filename" == mmproj*.gguf ]]
+}
+
 gguf_model_file_is_noncanonical_split_fragment() {
   local filename="${1,,}"
 
@@ -205,6 +344,7 @@ localai_model_entries() {
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     filename="${rel##*/}"
+    gguf_model_file_is_mmproj "$filename" && continue
     if gguf_model_file_is_noncanonical_split_fragment "$filename"; then
       gguf_warn_noncanonical_split_fragment "$models_dir/$rel"
       continue
@@ -246,6 +386,7 @@ localai_has_model_entries() {
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     filename="${rel##*/}"
+    gguf_model_file_is_mmproj "$filename" && continue
     gguf_model_file_is_noncanonical_split_fragment "$filename" && continue
     if gguf_model_file_is_primary "$filename"; then
       return 0

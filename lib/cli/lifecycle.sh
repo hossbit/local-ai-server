@@ -4,7 +4,7 @@ reload_model_ids() {
   local file="$1"
 
   [ -f "$file" ] || return 0
-  sed -n 's/^  "\(.*\)":$/\1/p' "$file" | sort
+  sed -n 's/^  "\(.*\)":$/\1/p' "$file" | LC_ALL=C sort
 }
 
 reload_report_model_diff() {
@@ -14,8 +14,12 @@ reload_report_model_diff() {
   old_ids="$(reload_model_ids "$old_file")"
   new_ids="$(reload_model_ids "$new_file")"
 
-  added="$(comm -13 <(grep -v '^$' <<<"$old_ids") <(grep -v '^$' <<<"$new_ids"))"
-  removed="$(comm -23 <(grep -v '^$' <<<"$old_ids") <(grep -v '^$' <<<"$new_ids"))"
+  # LC_ALL=C keeps comm's ordering check consistent with the LC_ALL=C sort
+  # above; locale-aware collation (e.g. en_US.UTF-8) can order mixed-case
+  # model names in a way comm's own locale-aware check then rejects as
+  # "not in sorted order".
+  added="$(LC_ALL=C comm -13 <(grep -v '^$' <<<"$old_ids") <(grep -v '^$' <<<"$new_ids"))"
+  removed="$(LC_ALL=C comm -23 <(grep -v '^$' <<<"$old_ids") <(grep -v '^$' <<<"$new_ids"))"
 
   if [ -n "$added" ]; then
     echo "  Added:"

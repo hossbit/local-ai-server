@@ -250,7 +250,7 @@ LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 resolve_llama_swap_paths
 select_llama_cpp_asset_regex ""
 
-mkdir -p "$AI_DIR" "$BIN_DIR" "$LIB_DIR" "$CONF_DIR" "$MODELS_DIR"
+mkdir -p "$AI_DIR" "$BIN_DIR" "$LIB_DIR" "$CONF_DIR" "$MODELS_DIR" "$CONF_DIR/$LOCALAI_MODELS_OVERRIDE_SUBDIR"
 if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" ]; then
   cp "$AI_DIR/$LOCALAI_PORT_FILE" "$CONF_DIR/$LOCALAI_PORT_FILE"
 fi

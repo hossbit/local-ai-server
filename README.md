@@ -46,7 +46,8 @@ the configured install directory, which defaults to `~/ai/models`.
 
 - OpenAI-compatible chat and completion endpoints
 - CPU mode plus optional Vulkan, ROCm, OpenVINO, or SYCL llama.cpp backends
-- Automatic discovery of `.gguf` model files
+- Automatic discovery of `.gguf` model files, with per-model auto-tuning for GPU hardware
+- Multimodal, speculative-decoding, and Prometheus metrics support
 - On-demand model loading and switching through llama-swap
 - A systemd user service
 - A `localai` command for service, model, update, and uninstall tasks
@@ -146,6 +147,11 @@ based on your installed models, RAM, backend, and detected GPU memory. It uses
 the actual GGUF file size as the base estimate, not an exact parameter-count
 formula. Runtime memory also depends on context length, KV cache type, batch
 size, backend buffers, and operating-system headroom.
+
+GPU-backed installs auto-tune per-model GPU layers, KV cache type, and
+flash-attention from your hardware, and enable free self-speculative decoding
+by default. See the wiki for per-model overrides (`models.d`), multimodal
+`--mmproj` setup, speculative-decoding tuning, metrics, and startup preloading.
 
 ## Use the server
 
