@@ -168,6 +168,28 @@ COMMON_EXTRA_ARGS=""
 
 mkdir -p "$CONF_DIR" "$MODELS_DIR" "$OVERRIDES_DIR"
 
+# API_KEY_REGISTRY is validated before anything is written to $CONFIG, so a
+# corrupted registry aborts the rebuild instead of silently generating an
+# unauthenticated config over a previously-authenticated one.
+API_KEY_REGISTRY="$CONF_DIR/${LOCALAI_API_KEY_FILE:-api-keys.tsv}"
+REQUIRE_API_KEY="${LOCALAI_REQUIRE_API_KEY:-0}"
+validate_bool REQUIRE_API_KEY "$REQUIRE_API_KEY"
+
+if ! api_key_registry_validate "$API_KEY_REGISTRY"; then
+  echo "Refusing to rebuild configuration; $CONFIG was left unchanged." >&2
+  exit 1
+fi
+
+ACTIVE_API_KEYS="$(api_key_active_secrets "$API_KEY_REGISTRY")"
+ACTIVE_API_KEY_COUNT=0
+[ -z "$ACTIVE_API_KEYS" ] || ACTIVE_API_KEY_COUNT="$(grep -c . <<<"$ACTIVE_API_KEYS")"
+
+if [ "$REQUIRE_API_KEY" = "1" ] && [ "$ACTIVE_API_KEY_COUNT" -eq 0 ]; then
+  echo "Error: LOCALAI_REQUIRE_API_KEY=1 but no active API keys exist." >&2
+  echo "Create one first: localai key create" >&2
+  exit 1
+fi
+
 BACKEND="$([ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ] && cat "$CONF_DIR/$LOCALAI_BACKEND_FILE" || printf '%s' "$LOCALAI_DEFAULT_BACKEND")"
 RAM_BYTES="$(system_ram_bytes)"
 VRAM_BYTES="$(gpu_vram_bytes)"
@@ -195,6 +217,18 @@ cat > "$CONFIG" <<CFG
 healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
 globalTTL: $LOCALAI_GLOBAL_TTL
 CFG
+chmod 600 "$CONFIG" 2>/dev/null || true
+
+if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
+  {
+    echo
+    echo "apiKeys:"
+    while IFS= read -r ACTIVE_KEY; do
+      [ -n "$ACTIVE_KEY" ] || continue
+      printf '  - "%s"\n' "$ACTIVE_KEY"
+    done <<<"$ACTIVE_API_KEYS"
+  } >> "$CONFIG"
+fi
 
 if [ "$METRICS_ENABLED" = "1" ]; then
   cat >> "$CONFIG" <<CFG
@@ -391,4 +425,8 @@ MODELCFG
   printf '\n' >> "$CONFIG"
 done < <(localai_model_entries "$MODELS_DIR")
 
-echo "Generated $CONFIG with $MODEL_COUNT model(s)."
+if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
+  echo "Generated $CONFIG with $MODEL_COUNT model(s) and $ACTIVE_API_KEY_COUNT active API key(s)."
+else
+  echo "Generated $CONFIG with $MODEL_COUNT model(s)."
+fi

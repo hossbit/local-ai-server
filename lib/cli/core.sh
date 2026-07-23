@@ -17,6 +17,7 @@ Commands:
   suggest     Suggest runtime settings for installed models
   load        Load one model, or all installed models
   unload      Unload one loaded model, or all loaded models
+  key         Manage API keys (create, list, revoke, rotate)
   update      Update llama.cpp, llama-swap, and helper scripts
   version     Show LocalAI and component versions
   uninstall   Uninstall LocalAI

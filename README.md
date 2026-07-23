@@ -180,9 +180,79 @@ Most users only need these:
 | `localai suggest` | Suggest runtime settings from installed model sizes and detected hardware. |
 | `localai load MODEL` | Warm one model. |
 | `localai unload MODEL` | Release one loaded model. |
+| `localai key ...` | Manage API keys (`create`, `list`, `revoke`, `rotate`) — see [API keys](#api-keys). |
 | `localai update` | Update installed components. |
 | `localai version` | Show component versions. |
 | `localai uninstall` | Remove helper files; models are kept by default. |
+
+## API keys
+
+By default the API has no authentication, matching llama-swap's own default —
+fine as long as `LOCALAI_LISTEN_HOST` stays `127.0.0.1` (loopback only, the
+default). If you plan to reach it from another machine on your LAN, create at
+least one key first.
+
+```bash
+localai key create work-laptop   # name is just a label; shown once, then masked
+localai key list                 # id, name, created, status, masked fingerprint
+localai key revoke <id>          # deactivate a key immediately
+localai key rotate <id>          # issue a replacement, then revoke the old one
+```
+
+`create` and `rotate` print the full secret exactly once, right after it's
+active — save it immediately, it cannot be shown again:
+
+```
+Key created: work-laptop
+  id:      a1b2c3d4e5f6
+  created: 2026-07-23T16:32:10Z
+
+Save this key now - it will not be shown again:
+
+    sk-localai-9f1a2b3c4d5e6f7089...
+
+Use it as a Bearer token:
+  curl http://127.0.0.1:11435/v1/models \
+    -H "Authorization: Bearer sk-localai-9f1a2b3c4d5e6f7089..."
+```
+
+Once at least one key is active, every request needs it:
+
+```bash
+curl http://127.0.0.1:11435/v1/models \
+  -H "Authorization: Bearer sk-localai-REPLACE_ME"
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:11435/v1",
+    api_key="sk-localai-REPLACE_ME",
+)
+```
+
+Behavior notes:
+
+- **No active keys**: the API stays unauthenticated (today's default, and what
+  every existing install keeps doing after an upgrade — nothing changes until
+  you run `localai key create`).
+- **First active key**: every request now needs a valid `Authorization: Bearer`
+  header.
+- **Revoking the last key**: the API goes back to unauthenticated, unless you
+  set `LOCALAI_REQUIRE_API_KEY=1` in `localai.conf`, which makes config
+  generation refuse to produce an unauthenticated config at all.
+- **Lost key**: there's no recovery; `rotate` the key (or `revoke` it and
+  `create` a new one).
+- Keys live in `conf/api-keys.tsv` (mode `0600`, outside Git). `config.yaml`
+  is also `0600` once it can contain a plaintext key.
+- Creating, revoking, or rotating a key restarts the running service so the
+  change takes effect immediately (same "only restart if something actually
+  changed" rule `localai reload` already uses for models).
+
+API keys authenticate requests; they don't encrypt them. For LAN/WAN access,
+put a TLS-terminating reverse proxy in front and restrict it with a firewall
+— see [Security](#security).
 
 ## Documentation
 
@@ -194,7 +264,8 @@ Most users only need these:
 
 The helper scripts bind llama-swap to `127.0.0.1`, so the API is available only
 on the local machine by default. Do not expose it to a network without adding
-authentication, TLS, and appropriate firewall rules.
+authentication ([`localai key create`](#api-keys)), TLS, and appropriate
+firewall rules.
 
 ## Credits
 

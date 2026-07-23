@@ -466,3 +466,173 @@ pid_file_matches_process() {
 
   return 0
 }
+
+# --- Terminal color helpers (used by `localai key` for readable output) ---
+
+# use_color: 1 when stdout is a terminal and NO_COLOR is unset, same check
+# `localai models` already uses for its "loaded" highlighting.
+use_color() {
+  [ -t 1 ] && [ -z "${NO_COLOR:-}" ]
+}
+
+# c CODE TEXT: wraps TEXT in ANSI color CODE when use_color, else passes it
+# through unchanged. CODE is a bare SGR number, e.g. 32 for green.
+c() {
+  local code="$1" text="$2"
+
+  if use_color; then
+    printf '\033[%sm%s\033[0m' "$code" "$text"
+  else
+    printf '%s' "$text"
+  fi
+}
+
+# --- API key registry (`localai key ...`) ---
+#
+# Registry file format: one `version\t1` header line, then one line per key:
+#   id\tname\tcreated_at\tstatus\tsecret
+# `secret` is redacted to "-" once a key is revoked; "-" is this project's
+# existing not-applicable sentinel (see compute_model_runtime_defaults).
+
+API_KEY_ID_RE='^[a-f0-9]{12}$'
+API_KEY_SECRET_RE='^sk-localai-[0-9a-f]{64}$'
+API_KEY_NAME_RE='^[A-Za-z0-9 ._-]{1,64}$'
+API_KEY_TIMESTAMP_RE='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+
+api_key_registry_path() {
+  printf '%s\n' "$CONF_DIR/$LOCALAI_API_KEY_FILE"
+}
+
+api_key_validate_name() {
+  [[ "$1" =~ $API_KEY_NAME_RE ]]
+}
+
+# api_key_generate_secret: sk-localai- followed by 256 bits of randomness
+# as lowercase hex, from a cryptographic source. Never $RANDOM/timestamps.
+api_key_generate_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    printf 'sk-localai-%s\n' "$(openssl rand -hex 32)"
+  elif [ -r /dev/urandom ]; then
+    printf 'sk-localai-%s\n' "$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  else
+    return 1
+  fi
+}
+
+# api_key_generate_id: a short, display-safe, non-secret identifier derived
+# from the secret. Knowing the id does not help recover the secret.
+api_key_generate_id() {
+  printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 12)}'
+}
+
+# api_key_mask: "sk-localai-" + first 4 hex chars + "..." + last 4 hex
+# chars. Never enough to reconstruct or narrow down the real secret.
+api_key_mask() {
+  local secret="$1"
+
+  printf '%s...%s\n' "${secret:0:15}" "${secret: -4}"
+}
+
+# api_key_registry_validate FILE: fails closed on any structural problem
+# (bad header, bad field, unknown status, duplicate id) so a corrupted
+# registry can never be silently treated as "zero keys configured".
+api_key_registry_validate() {
+  local file="$1"
+  local line n=0 id name created status secret
+  local -A seen_ids=()
+
+  [ -f "$file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    if [ "$n" -eq 1 ]; then
+      [ "$line" = "$(printf 'version\t1')" ] ||
+        { echo "Error: unsupported or missing version header in $file" >&2; return 1; }
+      continue
+    fi
+
+    IFS=$'\t' read -r id name created status secret <<<"$line"
+
+    [[ "$id" =~ $API_KEY_ID_RE ]] ||
+      { echo "Error: malformed key id in $file (line $n)" >&2; return 1; }
+    [ -z "${seen_ids[$id]+x}" ] ||
+      { echo "Error: duplicate key id in $file (line $n)" >&2; return 1; }
+    seen_ids["$id"]=1
+    api_key_validate_name "$name" ||
+      { echo "Error: malformed key name in $file (line $n)" >&2; return 1; }
+    [[ "$created" =~ $API_KEY_TIMESTAMP_RE ]] ||
+      { echo "Error: malformed timestamp in $file (line $n)" >&2; return 1; }
+
+    case "$status" in
+      active)
+        [[ "$secret" =~ $API_KEY_SECRET_RE ]] ||
+          { echo "Error: malformed secret in $file (line $n)" >&2; return 1; }
+        ;;
+      revoked)
+        [ "$secret" = "-" ] ||
+          { echo "Error: revoked key must have a redacted secret in $file (line $n)" >&2; return 1; }
+        ;;
+      *)
+        echo "Error: unknown key status '$status' in $file (line $n)" >&2
+        return 1
+        ;;
+    esac
+  done < "$file"
+}
+
+# api_key_registry_rows FILE: prints id/name/created/status/secret for every
+# key after the header, unvalidated. Callers that display data should
+# validate first; api_key_active_secrets and rebuild-config.sh rely on that.
+api_key_registry_rows() {
+  local file="$1"
+  local line n=0
+
+  [ -f "$file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    [ "$n" -eq 1 ] && continue
+    printf '%s\n' "$line"
+  done < "$file"
+}
+
+# api_auth_curl_args: refreshes the global array AUTH_CURL_ARGS with
+# -H "Authorization: Bearer <secret>" when at least one API key is active,
+# so the CLI's own requests to llama-swap (models/load/unload/check/start
+# health checks/stop's drain) keep working once `localai key create` turns
+# on authentication. Empty (no header) when there is no active key.
+AUTH_CURL_ARGS=()
+api_auth_curl_args() {
+  local registry secret
+
+  AUTH_CURL_ARGS=()
+  registry="$(api_key_registry_path)"
+  [ -f "$registry" ] || return 0
+  secret="$(api_key_active_secrets "$registry" | head -n1)"
+  [ -n "$secret" ] || return 0
+  AUTH_CURL_ARGS=(-H "Authorization: Bearer $secret")
+}
+
+api_key_active_secrets() {
+  local file="$1"
+  local id name created status secret
+
+  while IFS=$'\t' read -r id name created status secret; do
+    [ "$status" = active ] || continue
+    printf '%s\n' "$secret"
+  done < <(api_key_registry_rows "$file")
+}
+
+# api_key_registry_write_atomic FILE CONTENT: temp file in the same
+# directory, mode 0600, atomic rename. CONTENT should already include the
+# trailing newline convention (printf adds one).
+api_key_registry_write_atomic() {
+  local file="$1" content="$2" tmp
+
+  tmp="$(mktemp "${file}.XXXXXX")" || return 1
+  if ! printf '%s\n' "$content" > "$tmp" || ! chmod 600 "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f "$tmp" "$file"
+}

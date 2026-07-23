@@ -46,14 +46,15 @@ unload_loaded_models() {
   command -v jq >/dev/null 2>&1 || return 0
 
   base="$(api_base_url)"
+  api_auth_curl_args
   running_count="$(
-    curl --max-time 5 -fsS "$base/running" 2>/dev/null |
+    curl "${AUTH_CURL_ARGS[@]}" --max-time 5 -fsS "$base/running" 2>/dev/null |
       jq '[.running[]?] | length' 2>/dev/null
   )" || return 0
 
   if [[ "$running_count" =~ ^[0-9]+$ ]] && ((running_count > 0)); then
     echo "Unloading loaded model(s) before stop..."
-    curl --max-time 30 -fsS -X POST "$base/api/models/unload" >/dev/null 2>&1 || \
+    curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$base/api/models/unload" >/dev/null 2>&1 || \
       echo "Warning: failed to unload loaded model(s) before stop." >&2
   fi
 }

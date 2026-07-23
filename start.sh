@@ -100,19 +100,23 @@ PID=$!
 echo "$PID" > "$PID_FILE"
 process_start_time "$PID" > "$PID_START_FILE"
 
+# Read once: an API key active in config.yaml also protects /running, so the
+# readiness probe below must authenticate the same way external clients do.
+api_auth_curl_args
+
 for _ in {1..30}; do
   if ! pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
     fail_start "llama-swap failed to start"
   fi
   if command -v curl >/dev/null 2>&1 &&
-    curl --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
+    curl "${AUTH_CURL_ARGS[@]}" --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
     break
   fi
   sleep 0.5
 done
 
 if ! command -v curl >/dev/null 2>&1 ||
-  ! curl --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
+  ! curl "${AUTH_CURL_ARGS[@]}" --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
   fail_start "llama-swap started but API did not become ready at http://${LOCALAI_LISTEN_HOST}:${PORT}/running"
 fi
 

@@ -92,7 +92,8 @@ models_cmd() {
 }
 
 api_models() {
-  curl --max-time 10 -fsS "$(api_base_url)/v1/models" | jq -r '.data[]?.id'
+  api_auth_curl_args
+  curl "${AUTH_CURL_ARGS[@]}" --max-time 10 -fsS "$(api_base_url)/v1/models" | jq -r '.data[]?.id'
 }
 
 installed_model_exists() {
@@ -110,12 +111,13 @@ load_one_model() {
   local base
 
   base="$(api_base_url)"
+  api_auth_curl_args
   if model_is_embedding "$model"; then
-    curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/embeddings" \
+    curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/embeddings" \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg model "$model" '{model: $model, input: "ok"}')" >/dev/null
   else
-    curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
+    curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 1, stream: false}')" >/dev/null
   fi
@@ -147,7 +149,8 @@ load_cmd() {
 }
 
 running_models() {
-  curl --max-time 10 -fsS "$(api_base_url)/running" |
+  api_auth_curl_args
+  curl "${AUTH_CURL_ARGS[@]}" --max-time 10 -fsS "$(api_base_url)/running" |
     jq -r '.running[]? | if type == "object" then .model // .id // .name // empty else . end'
 }
 
@@ -160,7 +163,8 @@ unload_one_model() {
   local encoded_model
 
   encoded_model="$(url_encode "$model")"
-  curl --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload/${encoded_model}" >/dev/null
+  api_auth_curl_args
+  curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload/${encoded_model}" >/dev/null
   echo "Unloaded: $model"
 }
 
@@ -182,7 +186,8 @@ unload_cmd() {
       return 0
     fi
 
-    curl --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload" >/dev/null
+    api_auth_curl_args
+    curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload" >/dev/null
     echo "Unloaded all loaded models."
     return 0
   fi

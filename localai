@@ -69,6 +69,7 @@ source_localai_cli_lib cli/service.sh
 source_localai_cli_lib cli/models.sh
 source_localai_cli_lib cli/suggest.sh
 source_localai_cli_lib cli/lifecycle.sh
+source_localai_cli_lib cli/key.sh
 
 COMMAND="${1:-help}"
 if [ "$#" -gt 0 ]; then
@@ -96,6 +97,9 @@ case "$COMMAND" in
     ;;
   suggest)
     suggest_cmd "$@"
+    ;;
+  key)
+    key_cmd "$@"
     ;;
   load)
     load_cmd "$@"

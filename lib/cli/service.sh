@@ -64,10 +64,11 @@ check_cmd() {
   fi
 
   base="$(api_base_url)"
+  api_auth_curl_args
 
   echo
   echo "API models:"
-  if ! models_json="$(curl --max-time 10 -fsS "$base/v1/models")"; then
+  if ! models_json="$(curl "${AUTH_CURL_ARGS[@]}" --max-time 10 -fsS "$base/v1/models")"; then
     fail "API did not respond at $base/v1/models"
   fi
   jq -r '.data[]?.id' <<<"$models_json"
@@ -88,7 +89,7 @@ check_cmd() {
     fi
     echo
     echo "Chat check ($model):"
-    if ! chat_response="$(curl --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
+    if ! chat_response="$(curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 8, stream: false}')")"; then
       fail "chat completion failed for $model at $base/v1/chat/completions"
