@@ -469,10 +469,22 @@ pid_file_matches_process() {
 
 # --- Terminal color helpers (used by `localai key` for readable output) ---
 
+# LOCALAI_COLOR_ENABLED is computed once, here, at source time -- in the
+# real process, before any command substitution exists. `c` below is
+# routinely called as `x="$(c ... ...)"`; a `[ -t 1 ]` check re-run inside
+# that $(...) would see the pipe backing the substitution, never a
+# terminal, so it would always report "not a tty" regardless of the
+# actual invocation. Caching the real answer once avoids that trap.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  LOCALAI_COLOR_ENABLED=1
+else
+  LOCALAI_COLOR_ENABLED=0
+fi
+
 # use_color: 1 when stdout is a terminal and NO_COLOR is unset, same check
 # `localai models` already uses for its "loaded" highlighting.
 use_color() {
-  [ -t 1 ] && [ -z "${NO_COLOR:-}" ]
+  [ "$LOCALAI_COLOR_ENABLED" = "1" ]
 }
 
 # c CODE TEXT: wraps TEXT in ANSI color CODE when use_color, else passes it
