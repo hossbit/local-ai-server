@@ -48,7 +48,7 @@ suggest_for_model() {
 }
 
 suggest_cmd() {
-  local target="${1:-}" id rel path matched=0
+  local target="${1:-}" id rel path matched=0 DETECTED_GPU_COUNT
 
   [ "$#" -le 1 ] || fail "usage: localai suggest [MODEL]"
   if [ ! -d "$MODELS_DIR" ]; then
@@ -58,6 +58,10 @@ suggest_cmd() {
 
   echo "Runtime suggestions are advisory; memory checks use actual GGUF file size plus rough RAM/VRAM heuristics, not an exact parameter-count formula."
   echo "Set overrides with LOCALAI_CTX_SIZE, LOCALAI_N_GPU_LAYERS, LOCALAI_PARALLEL, and related variables."
+  DETECTED_GPU_COUNT="$(gpu_count)"
+  if [ "$DETECTED_GPU_COUNT" -gt 1 ]; then
+    echo "Detected $DETECTED_GPU_COUNT GPUs. Tune placement with LOCALAI_SPLIT_MODE (none/layer/tensor), LOCALAI_TENSOR_SPLIT, LOCALAI_MAIN_GPU, and LOCALAI_DEVICE."
+  fi
   while IFS=$'\t' read -r id rel path; do
     [ -n "$id" ] || continue
     if [ -n "$target" ] && [ "$id" != "$target" ] && [ "${rel%.gguf}" != "$target" ]; then

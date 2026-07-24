@@ -149,6 +149,42 @@ gpu_vram_bytes() {
   printf '0\n'
 }
 
+# gpu_count: number of distinct GPUs detected, used only to hint at
+# multi-GPU tuning (SPLIT_MODE/TENSOR_SPLIT/MAIN_GPU/DEVICE) in `localai
+# suggest`. Not used for VRAM math -- llama-server's own '-ngl auto' fitting
+# and --split-mode already handle multi-device placement at load time.
+gpu_count() {
+  local count candidate
+
+  if [ -n "${LOCALAI_SUGGEST_GPU_COUNT:-}" ]; then
+    printf '%s\n' "$LOCALAI_SUGGEST_GPU_COUNT"
+    return 0
+  fi
+
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    count="$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | grep -c .)"
+    if [ -n "$count" ] && [ "$count" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$count"
+      return 0
+    fi
+  fi
+
+  if command -v rocm-smi >/dev/null 2>&1; then
+    count="$(rocm-smi --showid 2>/dev/null | grep -c '^GPU\[')"
+    if [ -n "$count" ] && [ "$count" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$count"
+      return 0
+    fi
+  fi
+
+  count=0
+  for candidate in /sys/class/drm/card*/device/mem_info_vram_total; do
+    [ -r "$candidate" ] || continue
+    count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
 installed_backend() {
   if [ -n "${LOCALAI_SUGGEST_BACKEND:-}" ]; then
     printf '%s\n' "$LOCALAI_SUGGEST_BACKEND"

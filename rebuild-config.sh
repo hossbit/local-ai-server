@@ -54,6 +54,10 @@ JINJA="${JINJA:-$LOCALAI_JINJA}"
 MLOCK="${MLOCK:-$LOCALAI_MLOCK}"
 NO_MMAP="${NO_MMAP:-$LOCALAI_NO_MMAP}"
 EXTRA_LLAMA_ARGS="${EXTRA_LLAMA_ARGS:-$LOCALAI_EXTRA_LLAMA_ARGS}"
+SPLIT_MODE="${SPLIT_MODE:-$LOCALAI_SPLIT_MODE}"
+TENSOR_SPLIT="${TENSOR_SPLIT:-$LOCALAI_TENSOR_SPLIT}"
+MAIN_GPU="${MAIN_GPU:-$LOCALAI_MAIN_GPU}"
+DEVICE="${DEVICE:-$LOCALAI_DEVICE}"
 SPEC_TYPE="${SPEC_TYPE:-$LOCALAI_SPEC_TYPE}"
 SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-$LOCALAI_SPEC_DRAFT_N_MAX}"
 AUTO_TUNE="${AUTO_TUNE:-$LOCALAI_AUTO_TUNE}"
@@ -109,6 +113,42 @@ validate_spec_type() {
   esac
 }
 
+validate_split_mode() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    ""|none|layer|tensor) ;;
+    *)
+      echo "Error: $name must be 'none', 'layer', or 'tensor'." >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_tensor_split() {
+  local name="$1"
+  local value="$2"
+
+  [ -z "$value" ] && return 0
+  if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?(,[0-9]+(\.[0-9]+)?)*$ ]]; then
+    echo "Error: $name must be a comma-separated list of numbers, e.g. '3,1'." >&2
+    exit 1
+  fi
+}
+
+validate_shell_safe() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    *\"*|*"'"*|*'`'*|*\\*)
+      echo "Error: $name must not contain quotes or backslashes." >&2
+      exit 1
+      ;;
+  esac
+}
+
 trim_ws() {
   local value="$1"
 
@@ -137,6 +177,7 @@ validate_optional_positive_integer BATCH_SIZE "$BATCH_SIZE"
 validate_optional_positive_integer UBATCH_SIZE "$UBATCH_SIZE"
 validate_optional_positive_integer SPEC_DRAFT_N_MAX "$SPEC_DRAFT_N_MAX"
 validate_optional_nonnegative_integer EMBEDDING_TTL "$EMBEDDING_TTL"
+validate_optional_nonnegative_integer MAIN_GPU "$MAIN_GPU"
 validate_bool FLASH_ATTN "$FLASH_ATTN"
 validate_bool JINJA "$JINJA"
 validate_bool MLOCK "$MLOCK"
@@ -144,6 +185,9 @@ validate_bool NO_MMAP "$NO_MMAP"
 validate_bool AUTO_TUNE "$AUTO_TUNE"
 validate_bool METRICS_ENABLED "$METRICS_ENABLED"
 validate_spec_type SPEC_TYPE "$SPEC_TYPE"
+validate_split_mode SPLIT_MODE "$SPLIT_MODE"
+validate_tensor_split TENSOR_SPLIT "$TENSOR_SPLIT"
+validate_shell_safe DEVICE "$DEVICE"
 
 case "$EXTRA_LLAMA_ARGS" in
   *$'\n'*|*$'\r'*)
@@ -218,6 +262,10 @@ GLOBAL_CACHE_TYPE_V="$CACHE_TYPE_V"
 GLOBAL_FLASH_ATTN="$FLASH_ATTN"
 GLOBAL_SPEC_TYPE="$SPEC_TYPE"
 GLOBAL_SPEC_DRAFT_N_MAX="$SPEC_DRAFT_N_MAX"
+GLOBAL_SPLIT_MODE="$SPLIT_MODE"
+GLOBAL_TENSOR_SPLIT="$TENSOR_SPLIT"
+GLOBAL_MAIN_GPU="$MAIN_GPU"
+GLOBAL_DEVICE="$DEVICE"
 
 cat > "$CONFIG" <<CFG
 healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
@@ -297,6 +345,10 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   FLASH_ATTN="$GLOBAL_FLASH_ATTN"
   SPEC_TYPE="$GLOBAL_SPEC_TYPE"
   SPEC_DRAFT_N_MAX="$GLOBAL_SPEC_DRAFT_N_MAX"
+  SPLIT_MODE="$GLOBAL_SPLIT_MODE"
+  TENSOR_SPLIT="$GLOBAL_TENSOR_SPLIT"
+  MAIN_GPU="$GLOBAL_MAIN_GPU"
+  DEVICE="$GLOBAL_DEVICE"
   TTL=""
   ALIASES=""
   MMPROJ=""
@@ -345,7 +397,8 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   # Per-model override: conf/models.d/<model-id>.conf. Sourced last so it can
   # override auto-tune, mmproj detection, or any global default for this one
   # model. Uses the same variable names as the global config above, plus
-  # TTL, ALIASES, MMPROJ, SET_TEMPERATURE, SET_TOP_P, and EXTRA_ARGS.
+  # TTL, ALIASES, MMPROJ, SET_TEMPERATURE, SET_TOP_P, EXTRA_ARGS, SPLIT_MODE,
+  # TENSOR_SPLIT, MAIN_GPU, and DEVICE.
   OVERRIDE_FILE="$OVERRIDES_DIR/$NAME.conf"
   if [ -f "$OVERRIDE_FILE" ]; then
     # shellcheck disable=SC1090
@@ -364,6 +417,10 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   validate_spec_type "SPEC_TYPE (model $NAME)" "$SPEC_TYPE"
   validate_optional_positive_integer "SPEC_DRAFT_N_MAX (model $NAME)" "$SPEC_DRAFT_N_MAX"
   validate_optional_nonnegative_integer "TTL (model $NAME)" "$TTL"
+  validate_split_mode "SPLIT_MODE (model $NAME)" "$SPLIT_MODE"
+  validate_tensor_split "TENSOR_SPLIT (model $NAME)" "$TENSOR_SPLIT"
+  validate_optional_nonnegative_integer "MAIN_GPU (model $NAME)" "$MAIN_GPU"
+  validate_shell_safe "DEVICE (model $NAME)" "$DEVICE"
 
   MODEL_SPECIFIC_ARGS=""
   [ "$FLASH_ATTN" = "0" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
@@ -371,6 +428,16 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   if [ -n "$MMPROJ" ]; then
     MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
       --mmproj \"$MMPROJ\""
+  fi
+  [ -z "$SPLIT_MODE" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --split-mode $SPLIT_MODE"
+  [ -z "$TENSOR_SPLIT" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --tensor-split $TENSOR_SPLIT"
+  [ -z "$MAIN_GPU" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --main-gpu $MAIN_GPU"
+  if [ -n "$DEVICE" ]; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --device \"$DEVICE\""
   fi
   if [ -n "$SPEC_TYPE" ] && [ "$SPEC_TYPE" != "none" ]; then
     MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
