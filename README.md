@@ -15,6 +15,13 @@
 ![License](https://img.shields.io/badge/License-MIT-10B981)
 </div>
 
+<div align="center">
+
+[![Latest Release](https://img.shields.io/github/v/release/hossbit/local-ai-server?style=for-the-badge)](https://github.com/hossbit/local-ai-server/releases/latest)
+[![Total Downloads](https://img.shields.io/github/downloads/hossbit/local-ai-server/total?style=for-the-badge)](https://github.com/hossbit/local-ai-server/releases)
+[![Stars](https://img.shields.io/github/stars/hossbit/local-ai-server?style=for-the-badge)](https://github.com/hossbit/local-ai-server/stargazers)
+</div>
+
 Run GGUF language models locally with
 [llama.cpp](https://github.com/ggml-org/llama.cpp),
 CPU or GPU acceleration, and
