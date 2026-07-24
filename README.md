@@ -24,9 +24,9 @@ the configured install directory, which defaults to `~/ai/models`.
 
 <div align="center">
 
-[![Latest Release](https://img.shields.io/github/v/release/hossbit/local-ai-server?style=flat-square&logo=github&logoColor=white&label=Release&color=6C5CE7)](https://github.com/hossbit/local-ai-server/releases/latest)
-[![Total Downloads](https://img.shields.io/github/downloads/hossbit/local-ai-server/total?style=flat-square&logo=github&logoColor=white&label=Downloads&color=10B981)](https://github.com/hossbit/local-ai-server/releases)
-[![Stars](https://img.shields.io/github/stars/hossbit/local-ai-server?style=flat-square&logo=github&logoColor=white&label=Stars&color=F59E0B)](https://github.com/hossbit/local-ai-server/stargazers)
+[![Release](https://img.shields.io/github/v/release/hossbit/local-ai-server?label=Release&color=6C5CE7)](https://github.com/hossbit/local-ai-server/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/hossbit/local-ai-server/total?label=Downloads&color=10B981)](https://github.com/hossbit/local-ai-server/releases)
+[![Stars](https://img.shields.io/github/stars/hossbit/local-ai-server?label=Stars&color=F59E0B)](https://github.com/hossbit/local-ai-server/stargazers)
 </div>
 
 ## Why Local AI Server?
