@@ -24,9 +24,9 @@ the configured install directory, which defaults to `~/ai/models`.
 
 <div align="center">
 
-<a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="assets/badge-release.svg" alt="Latest Release" height="34"></a>
-<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="assets/badge-clones.svg" alt="Clones in the last 14 days" height="34"></a>
-<a href="https://github.com/hossbit/local-ai-server/stargazers"><img src="assets/badge-stars.svg" alt="GitHub Stars" height="34"></a>
+<a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-release.svg" alt="Latest Release" height="68"></a>
+<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-download.svg" alt="Downloads" height="68"></a>
+<a href="https://github.com/hossbit/local-ai-server/stargazers"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-stars.svg" alt="GitHub Stars" height="68"></a>
 </div>
 
 ## Why Local AI Server?
