@@ -105,7 +105,7 @@ validate_spec_type() {
   local value="$2"
 
   case "$value" in
-    ""|none|draft-simple|draft-eagle3|draft-mtp|draft-dflash|ngram-simple|ngram-map-k|ngram-map-k4v|ngram-mod|ngram-cache) ;;
+    ""|none|draft-simple|draft-eagle3|draft-mtp|draft-dflash|draft-dspark|ngram-simple|ngram-map-k|ngram-map-k4v|ngram-mod|ngram-cache) ;;
     *)
       echo "Error: $name has an unsupported value: $value" >&2
       exit 1
@@ -209,10 +209,20 @@ COMMON_EXTRA_ARGS=""
       --ubatch-size $UBATCH_SIZE"
 [ "$JINJA" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       --jinja"
-[ "$MLOCK" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --mlock"
-[ "$NO_MMAP" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --no-mmap"
+# --mlock/--no-mmap are deprecated upstream in favor of --load-mode; map the
+# two booleans onto it so generated configs don't trigger llama-server's
+# deprecation warning. mmap is the llama-server default, so it's omitted.
+if [ "$MLOCK" = "1" ] && [ "$NO_MMAP" = "1" ]; then
+  LOAD_MODE="mlock"
+elif [ "$MLOCK" = "1" ]; then
+  LOAD_MODE="mmap+mlock"
+elif [ "$NO_MMAP" = "1" ]; then
+  LOAD_MODE="none"
+else
+  LOAD_MODE=""
+fi
+[ -z "$LOAD_MODE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+      --load-mode $LOAD_MODE"
 [ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
       $EXTRA_LLAMA_ARGS"
 
