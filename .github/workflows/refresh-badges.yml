@@ -1,0 +1,118 @@
+name: Refresh stats badges
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  refresh-badges:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.MIRASSETS_PAT }}
+    steps:
+      - name: Refresh release/download/star badges in hossbit/mirassets
+        run: |
+          set -euo pipefail
+
+          # GitHub's clone-traffic API only returns a rolling 14-day sum, not new
+          # clones since the last run. Adding it to a running total on every run
+          # would double-count overlapping days, so downloads only accumulate if
+          # at least this long has passed since the last successful update.
+          DOWNLOAD_GUARD_SECONDS=$((14 * 86400))
+
+          MIRASSETS_DIR="$RUNNER_TEMP/mirassets"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/hossbit/mirassets.git" "$MIRASSETS_DIR"
+
+          # name | owner/repo | badge filename prefix
+          PROJECTS=(
+            "local-ai-server|hossbit/local-ai-server|localai"
+            "comai-linux-assistant|hossbit/comai-linux-assistant|comai"
+          )
+
+          update_value() {
+            local file="$1" new="$2"
+            sed -i -E "s#(class=\"value\">)[^<]*(</text>)#\1${new}\2#" "$file"
+          }
+
+          update_release_meta() {
+            local file="$1" new="$2"
+            sed -i -E "s#(aria-label=\"Latest release )[^\"]*(\")#\1${new}\2#" "$file"
+            sed -i -E "s#(<title>Latest release: )[^<]*(</title>)#\1${new}\2#" "$file"
+          }
+
+          update_download_meta() {
+            local file="$1" new="$2"
+            sed -i -E "s#(aria-label=\")[0-9]+( downloads\")#\1${new}\2#" "$file"
+            sed -i -E "s#(<title>Downloads: )[0-9]+(</title>)#\1${new}\2#" "$file"
+          }
+
+          update_stars_meta() {
+            local file="$1" new="$2"
+            sed -i -E "s#(aria-label=\")[0-9]+( GitHub stars\")#\1${new}\2#" "$file"
+            sed -i -E "s#(<title>GitHub stars: )[0-9]+(</title>)#\1${new}\2#" "$file"
+          }
+
+          for entry in "${PROJECTS[@]}"; do
+            IFS='|' read -r name repo prefix <<< "$entry"
+
+            echo "== $name ($repo) =="
+
+            release="$(gh api "repos/$repo/releases/latest" --jq '.tag_name' 2>/dev/null || echo "")"
+            stars="$(gh api "repos/$repo" --jq '.stargazers_count')"
+            clones="$(gh api "repos/$repo/traffic/clones" --jq '.count' 2>/dev/null || echo "")"
+
+            release_file="$MIRASSETS_DIR/images/${prefix}-badge-release.svg"
+            download_file="$MIRASSETS_DIR/images/${prefix}-badge-download.svg"
+            stars_file="$MIRASSETS_DIR/images/${prefix}-badge-stars.svg"
+            download_total_file="$MIRASSETS_DIR/images/${prefix}-download-total.txt"
+            download_last_run_file="$MIRASSETS_DIR/images/${prefix}-download-last-run.txt"
+
+            if [ -n "$release" ] && [ -f "$release_file" ]; then
+              echo "  release: $release"
+              update_value "$release_file" "$release"
+              update_release_meta "$release_file" "$release"
+            fi
+
+            now="$(date +%s)"
+            last_run=0
+            [ -f "$download_last_run_file" ] && last_run="$(cat "$download_last_run_file")"
+            elapsed=$((now - last_run))
+
+            if [ -z "$clones" ] || [ ! -f "$download_file" ]; then
+              echo "  downloads: skipped (no traffic access for $repo)"
+            elif [ "$elapsed" -lt "$DOWNLOAD_GUARD_SECONDS" ]; then
+              remaining_days=$(( (DOWNLOAD_GUARD_SECONDS - elapsed) / 86400 + 1 ))
+              echo "  downloads: skipped (ran $((elapsed / 86400))d ago, wait ${remaining_days}d more to avoid double-counting)"
+            else
+              if [ -f "$download_total_file" ]; then
+                previous_total="$(cat "$download_total_file")"
+              else
+                previous_total="$(grep -oE 'class="value">[0-9]+' "$download_file" | grep -oE '[0-9]+' || echo 0)"
+              fi
+              total=$((previous_total + clones))
+              echo "  downloads: $previous_total + $clones (14d clones) = $total"
+              echo "$total" > "$download_total_file"
+              echo "$now" > "$download_last_run_file"
+              update_value "$download_file" "$total"
+              update_download_meta "$download_file" "$total"
+            fi
+
+            if [ -f "$stars_file" ]; then
+              echo "  stars: $stars"
+              update_value "$stars_file" "$stars"
+              update_stars_meta "$stars_file" "$stars"
+            fi
+          done
+
+          cd "$MIRASSETS_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add images
+          if git diff --cached --quiet -- images; then
+            echo "No badge changes."
+            exit 0
+          fi
+          git commit -m "Update stats badges ($(date -u +%Y-%m-%d))"
+          git push
+          echo "Badges updated and pushed."
