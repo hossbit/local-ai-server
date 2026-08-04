@@ -107,7 +107,7 @@ localai backend list      # see what's installed and which is active
 localai update --all      # refresh every installed backend, not just the active one
 ```
 
-See the wiki's [Backend Selection](https://github.com/hossbit/local-ai-server/wiki/Local-AI-Service#backend-selection)
+See the wiki's [Backend Selection](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Local-AI-Service.md#backend-selection)
 page for CUDA prerequisites (`nvcc` vs. `nvidia-smi`), tuning overrides
 (`LOCALAI_NVCC`, `LOCALAI_CUDA_ARCHITECTURES`), and Fedora/RHEL notes.
 
