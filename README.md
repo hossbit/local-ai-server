@@ -89,13 +89,14 @@ re-run the installer:
 
 ```bash
 localai backend install vulkan
+localai backend install rocm
 localai backend install cuda
 ```
 
-See [CUDA and Switching Backends](#cuda-and-switching-backends) below.
-
-The default install directory is `~/ai`. See the wiki for custom directories,
-manual installs, backend selection, and pinned component versions.
+The default install directory is `~/ai`. See the wiki's [Install
+LocalAI](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Local-AI-Service.md#install-localai)
+page for custom directories, manual installs, backend selection, and pinned
+component versions.
 
 ## CUDA and Switching Backends
 
