@@ -87,7 +87,7 @@ curl -fsSL https://hossbit.github.io/localai/install.sh | LLAMA_CPP_BACKEND=cpu 
 The default install directory is `~/ai`. See the wiki for custom directories,
 manual installs, backend selection, and pinned component versions.
 
-### CUDA and switching backends
+## CUDA and Switching Backends
 
 Besides the prebuilt CPU/Vulkan/ROCm/OpenVINO/SYCL backends, LocalAI can also
 build `llama.cpp` from source against your own NVIDIA CUDA Toolkit. Once
