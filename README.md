@@ -84,6 +84,16 @@ CPU-only install:
 curl -fsSL https://hossbit.github.io/localai/install.sh | LLAMA_CPP_BACKEND=cpu bash
 ```
 
+Already installed and want another backend, including CUDA? No need to
+re-run the installer:
+
+```bash
+localai backend install vulkan
+localai backend install cuda
+```
+
+See [CUDA and Switching Backends](#cuda-and-switching-backends) below.
+
 The default install directory is `~/ai`. See the wiki for custom directories,
 manual installs, backend selection, and pinned component versions.
 
