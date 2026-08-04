@@ -89,27 +89,22 @@ manual installs, backend selection, and pinned component versions.
 
 ### CUDA and switching backends
 
-Besides the prebuilt CPU/Vulkan/ROCm/OpenVINO/SYCL backends, LocalAI also
-builds `llama.cpp` from source against your own NVIDIA CUDA Toolkit:
+Besides the prebuilt CPU/Vulkan/ROCm/OpenVINO/SYCL backends, LocalAI can also
+build `llama.cpp` from source against your own NVIDIA CUDA Toolkit. Once
+LocalAI is installed, add or switch backends with the CLI -- no need to
+re-run the installer, and no redownload or rebuild once a backend has been
+installed before:
 
 ```bash
-LLAMA_CPP_BACKEND=auto ./install-local-ai.sh    # CUDA when fully usable, else Vulkan, else CPU
-LLAMA_CPP_BACKEND=cuda ./install-local-ai.sh    # require CUDA; fails clearly if it isn't usable
-```
-
-Every backend you install stays available in its own slot, so switching
-between them later is instant -- no redownload, and for CUDA, no rebuild:
-
-```bash
-localai switch vulkan
-localai switch cuda
-localai backend list      # see what's installed and which is active
-localai update --all      # refresh every installed backend, not just the active one
+localai backend install cuda   # build CUDA without switching to it yet
+localai switch cuda            # switch to it (installs first if needed)
+localai switch vulkan          # switch back -- instant
+localai backend list           # see what's installed and which is active
 ```
 
 See the wiki's [Backend Selection](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Local-AI-Service.md#backend-selection)
-page for CUDA prerequisites (`nvcc` vs. `nvidia-smi`), tuning overrides
-(`LOCALAI_NVCC`, `LOCALAI_CUDA_ARCHITECTURES`), and Fedora/RHEL notes.
+page for CUDA prerequisites (`nvcc` vs. `nvidia-smi`), choosing a backend
+during the initial install, tuning overrides, and Fedora/RHEL notes.
 
 ## Add a model
 
