@@ -10,6 +10,7 @@
 ![Debian-based](https://img.shields.io/badge/Debian--based-apt--get-A81D33)
 ![Red Hat-based](https://img.shields.io/badge/Red%20Hat--based-dnf%20%7C%20yum-EE0000)
 ![llama.cpp](https://img.shields.io/badge/Engine-llama.cpp-6C5CE7)
+![CUDA](https://img.shields.io/badge/CUDA-supported-76B900)
 ![API](https://img.shields.io/badge/API-OpenAI--compatible-111827)
 ![Service](https://img.shields.io/badge/Service-systemd%20user-F59E0B)
 ![License](https://img.shields.io/badge/License-MIT-10B981)
@@ -52,7 +53,7 @@ the configured install directory, which defaults to `~/ai/models`.
 ## What it provides
 
 - OpenAI-compatible chat and completion endpoints
-- CPU mode plus optional Vulkan, ROCm, OpenVINO, or SYCL llama.cpp backends
+- CPU mode plus optional Vulkan, ROCm, OpenVINO, SYCL, or CUDA llama.cpp backends
 - Automatic discovery of `.gguf` model files, with per-model auto-tuning for GPU hardware
 - Multimodal, speculative-decoding, and Prometheus metrics support
 - On-demand model loading and switching through llama-swap
@@ -85,6 +86,30 @@ curl -fsSL https://hossbit.github.io/localai/install.sh | LLAMA_CPP_BACKEND=cpu 
 
 The default install directory is `~/ai`. See the wiki for custom directories,
 manual installs, backend selection, and pinned component versions.
+
+### CUDA and switching backends
+
+Besides the prebuilt CPU/Vulkan/ROCm/OpenVINO/SYCL backends, LocalAI also
+builds `llama.cpp` from source against your own NVIDIA CUDA Toolkit:
+
+```bash
+LLAMA_CPP_BACKEND=auto ./install-local-ai.sh    # CUDA when fully usable, else Vulkan, else CPU
+LLAMA_CPP_BACKEND=cuda ./install-local-ai.sh    # require CUDA; fails clearly if it isn't usable
+```
+
+Every backend you install stays available in its own slot, so switching
+between them later is instant -- no redownload, and for CUDA, no rebuild:
+
+```bash
+localai switch vulkan
+localai switch cuda
+localai backend list      # see what's installed and which is active
+localai update --all      # refresh every installed backend, not just the active one
+```
+
+See the wiki's [Backend Selection](https://github.com/hossbit/local-ai-server/wiki/Local-AI-Service#backend-selection)
+page for CUDA prerequisites (`nvcc` vs. `nvidia-smi`), tuning overrides
+(`LOCALAI_NVCC`, `LOCALAI_CUDA_ARCHITECTURES`), and Fedora/RHEL notes.
 
 ## Add a model
 

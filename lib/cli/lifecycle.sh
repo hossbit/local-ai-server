@@ -78,17 +78,21 @@ update_cmd() {
 }
 
 version_cmd() {
+  local backend=""
+
   echo "LocalAI: $LOCALAI_VERSION"
   echo "Install directory: $AI_DIR"
 
+  [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ] && backend="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+
   if [ -x "$BIN_DIR/llama-server" ]; then
-    "$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print "llama.cpp: " $0; exit}'
+    echo "llama.cpp: $(llama_cpp_display_version "$backend")"
   else
     echo "llama.cpp: not installed"
   fi
 
-  if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
-    echo "llama.cpp backend: $(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+  if [ -n "$backend" ]; then
+    echo "llama.cpp backend: $backend"
   fi
 
   if [ -x "$LLAMA_SWAP_BIN" ]; then

@@ -72,6 +72,10 @@ source_localai_cli_lib cli/models.sh
 source_localai_cli_lib cli/suggest.sh
 source_localai_cli_lib cli/lifecycle.sh
 source_localai_cli_lib cli/key.sh
+source_localai_cli_lib install.sh
+source_localai_cli_lib cuda.sh
+source_localai_cli_lib cli/switch.sh
+source_localai_cli_lib cli/backend.sh
 
 COMMAND="${1:-help}"
 if [ "$#" -gt 0 ]; then
@@ -111,6 +115,12 @@ case "$COMMAND" in
     ;;
   update)
     update_cmd "$@"
+    ;;
+  switch)
+    switch_cmd "$@"
+    ;;
+  backend)
+    backend_cmd "$@"
     ;;
   version)
     version_cmd

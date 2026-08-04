@@ -18,7 +18,11 @@ Commands:
   load        Load one model, or all installed models
   unload      Unload one loaded model, or all loaded models
   key         Manage API keys (create, list, revoke, rotate)
+  switch      Switch the active llama.cpp backend (instant if already
+              installed before, e.g. cpu, vulkan, cuda, auto)
+  backend     Manage installed backends (list, install without switching)
   update      Update llama.cpp, llama-swap, and helper scripts
+              Use --all to update every installed backend, not just the active one
   version     Show LocalAI and component versions
   uninstall   Uninstall LocalAI
   help        Show this help

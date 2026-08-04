@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2154
+# shellcheck disable=SC2034,SC2154,SC2153
 
 github_api_get() {
   local url="$1"
@@ -116,6 +116,15 @@ select_llama_cpp_asset_regex() {
   fi
 
   LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
+
+  # auto: CUDA when a full CUDA build environment is usable, else Vulkan when
+  # actually usable, else CPU. Resolved once here so every caller downstream
+  # (dependency install, asset/build selection, config generation) sees a
+  # concrete backend name, never "auto" itself.
+  if [ "$LLAMA_CPP_BACKEND" = "auto" ]; then
+    LLAMA_CPP_BACKEND="$(cuda_resolve_auto_backend)"
+  fi
+
   case "$LLAMA_CPP_BACKEND" in
     cpu)
       LLAMA_CPP_ASSET_RE="$LLAMA_CPP_CPU_ASSET_RE"
@@ -136,10 +145,134 @@ select_llama_cpp_asset_regex() {
       LLAMA_CPP_BACKEND="sycl-fp32"
       LLAMA_CPP_ASSET_RE="$LLAMA_CPP_SYCL_FP32_ASSET_RE"
       ;;
+    cuda)
+      # Explicit cuda is strict by default: cuda_resolve_explicit_backend
+      # fails clearly unless LOCALAI_CUDA_FALLBACK=1, in which case it
+      # returns the backend to actually use (vulkan or cpu) instead.
+      LLAMA_CPP_BACKEND="$(cuda_resolve_explicit_backend)"
+      if [ "$LLAMA_CPP_BACKEND" = "cuda" ]; then
+        LLAMA_CPP_ASSET_RE=""
+      else
+        select_llama_cpp_asset_regex "$1"
+        return
+      fi
+      ;;
     *)
-      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use cpu, vulkan, rocm, openvino, sycl-fp16, or sycl-fp32."
+      fail "unsupported LLAMA_CPP_BACKEND: $LLAMA_CPP_BACKEND. Use auto, cpu, vulkan, rocm, openvino, sycl-fp16, sycl-fp32, or cuda."
       ;;
   esac
+}
+
+# llama_cpp_backend_version: prints the installed version string for
+# $BIN_DIR/llama.cpp.d/<backend>, or nothing if that slot doesn't exist or
+# its binary won't run. Sets LD_LIBRARY_PATH to the backend's own directory
+# -- unlike upstream's prebuilt releases (which typically bake in an rpath),
+# a locally-built binary such as the CUDA backend needs it to find its
+# sibling shared libraries, and running it without would silently look like
+# "not installed" rather than an actual version mismatch.
+llama_cpp_backend_version() {
+  local backend="$1"
+  local dir="$BIN_DIR/llama.cpp.d/$backend"
+  LD_LIBRARY_PATH="$dir:${LD_LIBRARY_PATH:-}" "$dir/llama-server" --version 2>&1 |
+    awk '/version:/ {print $2; exit}' || true
+}
+
+# _llama_cpp_format_display_version: given a backend name and the raw first
+# line of `llama-server --version` for it, returns the human-facing
+# "version: N (hash)" line -- substituting cuda's recorded build revision
+# (cuda_installed_revision, lib/cuda.sh) for its own self-reported build
+# number, otherwise passing $raw straight through. A shallow
+# `git clone --depth 1` build always self-reports "1" regardless of which
+# revision it actually is, since llama.cpp computes that number from
+# `git rev-list --count`, which only sees the one commit a shallow clone
+# fetched. The commit hash portion is unaffected either way.
+_llama_cpp_format_display_version() {
+  local backend="$1" raw="$2"
+  local hash revision
+
+  if [ "$backend" = "cuda" ] && command -v cuda_installed_revision >/dev/null 2>&1; then
+    revision="$(cuda_installed_revision)"
+    if [ -n "$revision" ]; then
+      hash="$(printf '%s\n' "$raw" | sed -n 's/.*(\(.*\)).*/\1/p')"
+      printf 'version: %s (%s)\n' "${revision#b}" "$hash"
+      return
+    fi
+  fi
+
+  printf '%s\n' "$raw"
+}
+
+# llama_cpp_display_version: the corrected display version for $backend via
+# $BIN_DIR/llama-server (the wrapper script/symlink, i.e. whichever backend
+# is currently *active*). For `localai version` and the install/update
+# summaries.
+llama_cpp_display_version() {
+  local backend="$1" raw
+  raw="$("$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}')"
+  _llama_cpp_format_display_version "$backend" "$raw"
+}
+
+# llama_cpp_backend_display_version: the corrected display version for one
+# specific backend's own slot ($BIN_DIR/llama.cpp.d/<backend>), regardless
+# of whether it's the currently active one. For `localai backend list`.
+# Prints nothing if that slot has no binary.
+llama_cpp_backend_display_version() {
+  local backend="$1" dir raw
+  dir="$BIN_DIR/llama.cpp.d/$backend"
+  [ -x "$dir/llama-server" ] || return 0
+  raw="$(LD_LIBRARY_PATH="$dir:${LD_LIBRARY_PATH:-}" "$dir/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}')"
+  _llama_cpp_format_display_version "$backend" "$raw"
+}
+
+# install_llama_cpp_release_dir: takes a directory that already contains a
+# built/extracted llama-server (anywhere under it, alongside its shared
+# libs), stores it under $BIN_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND (keeping any
+# other previously-installed backends intact), atomically repoints the
+# $BIN_DIR/llama.cpp symlink at it, installs the LD_LIBRARY_PATH wrapper
+# script, and persists the backend marker. Shared by the prebuilt-archive
+# path (install_llama_cpp_archive) and the CUDA source build path
+# (cuda_build_and_install in lib/cuda.sh) so both scripts and both backend
+# kinds go through one atomic-install implementation, and so `localai
+# switch` can find every backend that's ever been installed.
+# activate_llama_cpp_backend: points $BIN_DIR/llama.cpp at the already-
+# installed $BIN_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND and persists the backend
+# marker. Split out from install_llama_cpp_release_dir so cuda_build_and_install's
+# cache-hit skip path (lib/cuda.sh) and `localai switch` (lib/cli/switch.sh)
+# can activate an already-installed backend without reinstalling anything.
+activate_llama_cpp_backend() {
+  # `ln -sfn` can replace an existing symlink or file, but not a real
+  # directory -- it would silently create the link *inside* one instead of
+  # replacing it. A real directory here only happens once, migrating from
+  # the pre-multi-backend layout where llama.cpp was the release dir itself.
+  if [ -d "$BIN_DIR/llama.cpp" ] && [ ! -L "$BIN_DIR/llama.cpp" ]; then
+    rm -rf "$BIN_DIR/llama.cpp"
+  fi
+  ln -sfn "llama.cpp.d/$LLAMA_CPP_BACKEND" "$BIN_DIR/llama.cpp"
+  echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
+}
+
+install_llama_cpp_release_dir() {
+  local release_dir="$1"
+  local tmp_dir="$2"
+  local llama_server_real llama_release_dir backend_dir
+
+  llama_server_real=$(find "$release_dir" -type f -name llama-server -print -quit)
+  [ -n "$llama_server_real" ] || fail "llama-server was not found in $release_dir"
+  llama_release_dir=$(dirname "$llama_server_real")
+
+  backend_dir="$BIN_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND"
+  mkdir -p "$BIN_DIR/llama.cpp.d"
+  rm -rf "$backend_dir"
+  mv "$llama_release_dir" "$backend_dir"
+  activate_llama_cpp_backend
+
+  cat > "$tmp_dir/llama-server" <<EOF
+#!/usr/bin/env bash
+export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
+exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
+EOF
+
+  install -m755 "$tmp_dir/llama-server" "$BIN_DIR/llama-server"
 }
 
 llama_cpp_versions_match() {

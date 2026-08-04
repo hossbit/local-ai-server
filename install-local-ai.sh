@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck source=lib/install.sh
 source "$SCRIPT_DIR/lib/install.sh"
+# shellcheck source=lib/cuda.sh
+source "$SCRIPT_DIR/lib/cuda.sh"
 
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
@@ -106,13 +108,16 @@ install_system_dependencies() {
   if command -v apt-get >/dev/null 2>&1; then
     "${sudo_cmd[@]}" apt-get update
     read -r -a packages <<< "$LOCALAI_APT_PACKAGES"
+    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_APT_PACKAGES $LOCALAI_CUDA_APT_PACKAGES"
     "${sudo_cmd[@]}" apt-get install -y "${packages[@]}"
   elif command -v dnf >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_DNF_PACKAGES"
+    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_DNF_PACKAGES $LOCALAI_CUDA_DNF_PACKAGES"
     "${sudo_cmd[@]}" dnf install -y "${packages[@]}" ||
       fail "failed to install dnf packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   elif command -v yum >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_YUM_PACKAGES"
+    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_YUM_PACKAGES $LOCALAI_CUDA_YUM_PACKAGES"
     "${sudo_cmd[@]}" yum install -y "${packages[@]}" ||
       fail "failed to install yum packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   else
@@ -131,6 +136,12 @@ resolve_llama_cpp_url() {
     release_api="$(release_api_for_version "$LLAMA_CPP_VERSION" "$LLAMA_CPP_RELEASE_API" "$LLAMA_CPP_LATEST_API")"
     LLAMA_CPP_JSON="$(github_api_get "$release_api")"
   fi
+
+  # cuda has no prebuilt release asset -- it's a source build pinned to this
+  # same resolved $LLAMA_CPP_VERSION tag, so cuda and the other backends
+  # never silently drift to different llama.cpp revisions.
+  [ "$LLAMA_CPP_BACKEND" = "cuda" ] && return 0
+
   LLAMA_CPP_URL="$(release_asset_url "$LLAMA_CPP_JSON" "$LLAMA_CPP_ASSET_RE")"
 
   [ -n "$LLAMA_CPP_URL" ] || fail "no llama.cpp asset found for backend '$LLAMA_CPP_BACKEND' in release $LLAMA_CPP_VERSION"
@@ -171,6 +182,7 @@ work on other glibc Linux distributions when runtime libraries are available.
 Try another backend, for example:
   LLAMA_CPP_BACKEND=cpu $0
   LLAMA_CPP_BACKEND=vulkan $0
+  LLAMA_CPP_BACKEND=auto $0
 
 Or install the missing runtime libraries for your selected backend and rerun.
 EOF
@@ -178,8 +190,6 @@ EOF
 
 install_llama_cpp_archive() {
   local archive="$1"
-  local llama_server_real
-  local llama_release_dir
 
   rm -rf "$DOWNLOAD_DIR/llama.cpp"
   mkdir -p "$DOWNLOAD_DIR/llama.cpp"
@@ -187,23 +197,7 @@ install_llama_cpp_archive() {
     -C "$DOWNLOAD_DIR/llama.cpp" \
     || fail "failed to extract llama.cpp"
 
-  llama_server_real=$(
-    find "$DOWNLOAD_DIR/llama.cpp" -type f -name llama-server -print -quit
-  )
-  [ -n "$llama_server_real" ] || fail "llama-server was not found in the archive"
-
-  llama_release_dir=$(dirname "$llama_server_real")
-  rm -rf "$BIN_DIR/llama.cpp"
-  mv "$llama_release_dir" "$BIN_DIR/llama.cpp"
-
-  cat > "$DOWNLOAD_DIR/llama-server" <<EOF
-#!/usr/bin/env bash
-export LD_LIBRARY_PATH="$BIN_DIR/llama.cpp:\${LD_LIBRARY_PATH:-}"
-exec "$BIN_DIR/llama.cpp/llama-server" "\$@"
-EOF
-
-  install -m755 "$DOWNLOAD_DIR/llama-server" "$BIN_DIR/llama-server"
-  echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
+  install_llama_cpp_release_dir "$DOWNLOAD_DIR/llama.cpp" "$DOWNLOAD_DIR"
 }
 
 fallback_to_cpu_backend() {
@@ -233,7 +227,7 @@ fallback_to_cpu_backend() {
 cleanup_bin_artifacts() {
   log "Cleaning old llama.cpp folders and archives"
 
-  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp -exec rm -rf -- {} +
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp ! -name llama.cpp.d -exec rm -rf -- {} +
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
@@ -270,9 +264,10 @@ resolve_llama_swap_release
 DOWNLOAD_DIR=$(mktemp -d)
 trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
 
-log "Downloading llama.cpp $LLAMA_CPP_VERSION ($LLAMA_CPP_BACKEND backend)"
-
-download_verified_asset "$LLAMA_CPP_JSON" "$LLAMA_CPP_URL" "$DOWNLOAD_DIR/llama.cpp.tar.gz" "llama.cpp"
+if [ "$LLAMA_CPP_BACKEND" != "cuda" ]; then
+  log "Downloading llama.cpp $LLAMA_CPP_VERSION ($LLAMA_CPP_BACKEND backend)"
+  download_verified_asset "$LLAMA_CPP_JSON" "$LLAMA_CPP_URL" "$DOWNLOAD_DIR/llama.cpp.tar.gz" "llama.cpp"
+fi
 
 log "Downloading llama-swap $LLAMA_SWAP_VERSION"
 
@@ -292,9 +287,13 @@ fi
 
 log "Installing llama.cpp"
 
-install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.tar.gz"
-if ! verify_llama_server; then
-  fallback_to_cpu_backend
+if [ "$LLAMA_CPP_BACKEND" = "cuda" ]; then
+  cuda_build_and_install "$DOWNLOAD_DIR" || fallback_to_cpu_backend
+else
+  install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.tar.gz"
+  if ! verify_llama_server; then
+    fallback_to_cpu_backend
+  fi
 fi
 cleanup_bin_artifacts
 
@@ -456,7 +455,7 @@ case ":$PATH:" in
     ;;
 esac
 echo "Current versions:"
-"$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}'
+llama_cpp_display_version "$LLAMA_CPP_BACKEND"
 echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
 "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print; exit}'
 echo
