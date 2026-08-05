@@ -364,6 +364,11 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   MMPROJ=""
   SET_TEMPERATURE=""
   SET_TOP_P=""
+  # unset (not just reassigned) so a models.d override that declared this as
+  # an array on a previous loop iteration can't leak leftover elements into
+  # a model that doesn't override it -- `EXTRA_ARGS=""` alone only replaces
+  # index 0 of an existing array, it doesn't clear the rest.
+  unset -v EXTRA_ARGS
   EXTRA_ARGS=""
 
   if [ "$AUTO_TUNE" = "1" ] && [ "$BACKEND" != "cpu" ]; then
@@ -415,6 +420,27 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
     . "$OVERRIDE_FILE"
   fi
 
+  # EXTRA_ARGS reaches the model's cmd: line as a string llama-swap re-parses
+  # with its own shell-like tokenizer, so a value containing quotes/braces
+  # (e.g. --chat-template-kwargs JSON) needs to survive that second parse.
+  # Plain-string EXTRA_ARGS keeps the historical behavior (spliced in as-is,
+  # relying on llama-swap to split it on whitespace) so existing overrides
+  # are unaffected. Declaring EXTRA_ARGS as a bash array instead lets each
+  # element carry spaces/quotes safely -- every element is single-quoted
+  # here so it always arrives as exactly one argv token, regardless of what
+  # llama-swap's tokenizer would otherwise do with the raw characters.
+  EXTRA_ARGS_RENDERED=""
+  if [[ "$(declare -p EXTRA_ARGS 2>/dev/null)" == "declare -a"* ]]; then
+    for EXTRA_ARGS_ELEMENT in "${EXTRA_ARGS[@]}"; do
+      [ -n "$EXTRA_ARGS_ELEMENT" ] || continue
+      EXTRA_ARGS_RENDERED="$EXTRA_ARGS_RENDERED
+      $(shell_quote_token "$EXTRA_ARGS_ELEMENT")"
+    done
+  else
+    [ -z "$EXTRA_ARGS" ] || EXTRA_ARGS_RENDERED="
+      $EXTRA_ARGS"
+  fi
+
   if ! [[ "$CTX_SIZE" =~ ^[0-9]+$ ]] || ((CTX_SIZE < 1)); then
     echo "Error: CTX_SIZE for model $NAME must be a positive integer." >&2
     exit 1
@@ -454,8 +480,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
       --spec-type $SPEC_TYPE
       --spec-draft-n-max $SPEC_DRAFT_N_MAX"
   fi
-  [ -z "$EXTRA_ARGS" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
-      $EXTRA_ARGS"
+  [ -z "$EXTRA_ARGS_RENDERED" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS$EXTRA_ARGS_RENDERED"
 
   EXTRA_MODEL_YAML=""
   [ -z "$TTL" ] || EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML

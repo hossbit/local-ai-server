@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2154
 
+shell_quote_token() {
+  local value="$1"
+
+  printf "'%s'" "${value//\'/\'\\\'\'}"
+}
+
 expand_path() {
   local value="$1"
 
