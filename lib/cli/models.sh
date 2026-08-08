@@ -194,3 +194,35 @@ unload_cmd() {
 
   unload_one_model "$target"
 }
+
+# ui_cmd: llama-swap ships a built-in management Web UI, and proxies each
+# running llama-server's own chat UI through /upstream/<model>/ (loading the
+# model on first hit, same as any other API request). Neither needs
+# anything installed -- this just prints the URLs so they're discoverable.
+ui_cmd() {
+  local target="${1:-}" base registry
+
+  [ "$#" -le 1 ] || fail "usage: localai ui [MODEL]"
+  base="$(api_base_url)"
+
+  if [ -n "$target" ]; then
+    installed_model_exists "$target" || fail "model not found: $target"
+    echo "llama.cpp chat UI for $target:"
+    echo "  $base/upstream/$(url_encode "$target")/"
+  else
+    echo "llama-swap Web UI (model status, load/unload, logs):"
+    echo "  $base/ui"
+    echo
+    echo "llama.cpp chat UI for a specific model:"
+    echo "  $base/upstream/MODEL_ID/"
+    echo "  (run 'localai ui MODEL_ID', or 'localai models' for exact IDs)"
+  fi
+
+  registry="$(api_key_registry_path)"
+  if [ -f "$registry" ] && [ -n "$(api_key_active_secrets "$registry" | head -n1)" ]; then
+    echo
+    echo "API-key auth is enabled. When the browser prompts for credentials,"
+    echo "leave the username blank and use an active key ('localai key list')"
+    echo "as the password."
+  fi
+}

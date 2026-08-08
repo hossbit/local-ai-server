@@ -101,6 +101,9 @@ case "$COMMAND" in
   models)
     models_cmd
     ;;
+  ui)
+    ui_cmd "$@"
+    ;;
   suggest)
     suggest_cmd "$@"
     ;;

@@ -205,6 +205,42 @@ localai check
 
 The API is available at `http://127.0.0.1:$(cat ~/ai/conf/port)/v1`.
 
+### Web UIs
+
+Two browser UIs are available with nothing extra to install — llama-swap
+and llama.cpp both ship one, and LocalAI just wires them up:
+
+- **llama-swap Web UI** — `http://127.0.0.1:PORT/ui`. Shows model status,
+  lets you load/unload models, and tails logs.
+- **llama.cpp chat UI** — `http://127.0.0.1:PORT/upstream/MODEL_ID/`. The
+  same chat UI `llama-server` serves standalone, proxied per model through
+  llama-swap (loading the model on first request, like any other API call).
+
+Run `localai ui` to print both URLs, or `localai ui MODEL_ID` for one
+model's chat UI directly:
+
+```bash
+$ localai ui
+llama-swap Web UI (model status, load/unload, logs):
+  http://127.0.0.1:11435/ui
+
+llama.cpp chat UI for a specific model:
+  http://127.0.0.1:11435/upstream/MODEL_ID/
+  (run 'localai ui MODEL_ID', or 'localai models' for exact IDs)
+
+API-key auth is enabled. When the browser prompts for credentials,
+leave the username blank and use an active key ('localai key list')
+as the password.
+
+$ localai ui Qwen2.5-Coder-7B-Instruct-Q4_K_M
+llama.cpp chat UI for Qwen2.5-Coder-7B-Instruct-Q4_K_M:
+  http://127.0.0.1:11435/upstream/Qwen2.5-Coder-7B-Instruct-Q4_K_M/
+```
+
+Open the printed URL in a browser. If API-key auth is enabled ([API
+keys](#api-keys)), the browser's login prompt wants the username left
+blank and an active key as the password.
+
 ## Service and helper commands
 
 Most users only need these:
@@ -218,6 +254,7 @@ Most users only need these:
 | `localai status` | Show service, process, API, and port status. |
 | `localai check` | Check the API and model list. |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
+| `localai ui [MODEL]` | Print the llama-swap Web UI URL, or one model's llama.cpp chat UI URL. |
 | `localai suggest` | Suggest runtime settings from installed model sizes and detected hardware. |
 | `localai load MODEL` | Warm one model. |
 | `localai unload MODEL` | Release one loaded model. |
