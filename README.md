@@ -191,8 +191,8 @@ flash-attention from your hardware, and enable free self-speculative decoding
 by default. On multi-GPU systems, `LOCALAI_SPLIT_MODE`, `LOCALAI_TENSOR_SPLIT`,
 `LOCALAI_MAIN_GPU`, and `LOCALAI_DEVICE` control how models are placed across
 devices. See the wiki for per-model overrides (`models.d`), multi-GPU tuning,
-multimodal `--mmproj` setup, speculative-decoding tuning, metrics, and startup
-preloading.
+MoE CPU offload, reasoning-model tuning, multimodal `--mmproj` setup,
+speculative-decoding tuning, LoRA adapters, metrics, and startup preloading.
 
 ## Use the server
 

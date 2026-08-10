@@ -60,6 +60,12 @@ MAIN_GPU="${MAIN_GPU:-$LOCALAI_MAIN_GPU}"
 DEVICE="${DEVICE:-$LOCALAI_DEVICE}"
 SPEC_TYPE="${SPEC_TYPE:-$LOCALAI_SPEC_TYPE}"
 SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-$LOCALAI_SPEC_DRAFT_N_MAX}"
+CPU_MOE="${CPU_MOE:-$LOCALAI_CPU_MOE}"
+N_CPU_MOE="${N_CPU_MOE:-$LOCALAI_N_CPU_MOE}"
+REASONING="${REASONING:-$LOCALAI_REASONING}"
+REASONING_BUDGET="${REASONING_BUDGET:-$LOCALAI_REASONING_BUDGET}"
+REASONING_FORMAT="${REASONING_FORMAT:-$LOCALAI_REASONING_FORMAT}"
+REASONING_PRESERVE="${REASONING_PRESERVE:-$LOCALAI_REASONING_PRESERVE}"
 AUTO_TUNE="${AUTO_TUNE:-$LOCALAI_AUTO_TUNE}"
 METRICS_ENABLED="${METRICS_ENABLED:-$LOCALAI_METRICS_ENABLED}"
 PRELOAD_MODELS="${PRELOAD_MODELS:-$LOCALAI_PRELOAD_MODELS}"
@@ -113,6 +119,43 @@ validate_spec_type() {
   esac
 }
 
+validate_reasoning() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    ""|on|off|auto) ;;
+    *)
+      echo "Error: $name must be '', 'on', 'off', or 'auto'." >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_reasoning_format() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    ""|none|deepseek|deepseek-legacy) ;;
+    *)
+      echo "Error: $name must be '', 'none', 'deepseek', or 'deepseek-legacy'." >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_reasoning_budget() {
+  local name="$1"
+  local value="$2"
+
+  [ -z "$value" ] && return 0
+  if ! [[ "$value" =~ ^-?[0-9]+$ ]] || ((value < -1)); then
+    echo "Error: $name must be -1 or a non-negative integer when set." >&2
+    exit 1
+  fi
+}
+
 validate_split_mode() {
   local name="$1"
   local value="$2"
@@ -135,6 +178,18 @@ validate_tensor_split() {
     echo "Error: $name must be a comma-separated list of numbers, e.g. '3,1'." >&2
     exit 1
   fi
+}
+
+validate_single_line() {
+  local name="$1"
+  local value="$2"
+
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "Error: $name must not contain newlines." >&2
+      exit 1
+      ;;
+  esac
 }
 
 validate_shell_safe() {
@@ -178,16 +233,22 @@ validate_optional_positive_integer UBATCH_SIZE "$UBATCH_SIZE"
 validate_optional_positive_integer SPEC_DRAFT_N_MAX "$SPEC_DRAFT_N_MAX"
 validate_optional_nonnegative_integer EMBEDDING_TTL "$EMBEDDING_TTL"
 validate_optional_nonnegative_integer MAIN_GPU "$MAIN_GPU"
+validate_optional_nonnegative_integer N_CPU_MOE "$N_CPU_MOE"
 validate_bool FLASH_ATTN "$FLASH_ATTN"
 validate_bool JINJA "$JINJA"
 validate_bool MLOCK "$MLOCK"
 validate_bool NO_MMAP "$NO_MMAP"
 validate_bool AUTO_TUNE "$AUTO_TUNE"
 validate_bool METRICS_ENABLED "$METRICS_ENABLED"
+validate_bool CPU_MOE "$CPU_MOE"
+validate_bool REASONING_PRESERVE "$REASONING_PRESERVE"
 validate_spec_type SPEC_TYPE "$SPEC_TYPE"
 validate_split_mode SPLIT_MODE "$SPLIT_MODE"
 validate_tensor_split TENSOR_SPLIT "$TENSOR_SPLIT"
 validate_shell_safe DEVICE "$DEVICE"
+validate_reasoning REASONING "$REASONING"
+validate_reasoning_format REASONING_FORMAT "$REASONING_FORMAT"
+validate_reasoning_budget REASONING_BUDGET "$REASONING_BUDGET"
 
 case "$EXTRA_LLAMA_ARGS" in
   *$'\n'*|*$'\r'*)
@@ -276,6 +337,12 @@ GLOBAL_SPLIT_MODE="$SPLIT_MODE"
 GLOBAL_TENSOR_SPLIT="$TENSOR_SPLIT"
 GLOBAL_MAIN_GPU="$MAIN_GPU"
 GLOBAL_DEVICE="$DEVICE"
+GLOBAL_CPU_MOE="$CPU_MOE"
+GLOBAL_N_CPU_MOE="$N_CPU_MOE"
+GLOBAL_REASONING="$REASONING"
+GLOBAL_REASONING_BUDGET="$REASONING_BUDGET"
+GLOBAL_REASONING_FORMAT="$REASONING_FORMAT"
+GLOBAL_REASONING_PRESERVE="$REASONING_PRESERVE"
 
 cat > "$CONFIG" <<CFG
 healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
@@ -359,9 +426,26 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   TENSOR_SPLIT="$GLOBAL_TENSOR_SPLIT"
   MAIN_GPU="$GLOBAL_MAIN_GPU"
   DEVICE="$GLOBAL_DEVICE"
+  CPU_MOE="$GLOBAL_CPU_MOE"
+  N_CPU_MOE="$GLOBAL_N_CPU_MOE"
+  REASONING="$GLOBAL_REASONING"
+  REASONING_BUDGET="$GLOBAL_REASONING_BUDGET"
+  REASONING_FORMAT="$GLOBAL_REASONING_FORMAT"
+  REASONING_PRESERVE="$GLOBAL_REASONING_PRESERVE"
   TTL=""
   ALIASES=""
   MMPROJ=""
+  MMPROJ_URL=""
+  MMPROJ_OFFLOAD="0"
+  IMAGE_MIN_TOKENS=""
+  IMAGE_MAX_TOKENS=""
+  OVERRIDE_TENSOR=""
+  SPEC_DRAFT_MODEL=""
+  SPEC_DRAFT_N_MIN=""
+  SPEC_DRAFT_DEVICE=""
+  SPEC_DRAFT_NGL=""
+  LORA=""
+  LORA_SCALED=""
   SET_TEMPERATURE=""
   SET_TOP_P=""
   # unset (not just reassigned) so a models.d override that declared this as
@@ -413,7 +497,11 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   # override auto-tune, mmproj detection, or any global default for this one
   # model. Uses the same variable names as the global config above, plus
   # TTL, ALIASES, MMPROJ, SET_TEMPERATURE, SET_TOP_P, EXTRA_ARGS, SPLIT_MODE,
-  # TENSOR_SPLIT, MAIN_GPU, and DEVICE.
+  # TENSOR_SPLIT, MAIN_GPU, DEVICE, CPU_MOE, N_CPU_MOE, OVERRIDE_TENSOR,
+  # REASONING, REASONING_BUDGET, REASONING_FORMAT, REASONING_PRESERVE,
+  # SPEC_DRAFT_MODEL, SPEC_DRAFT_N_MIN, SPEC_DRAFT_DEVICE, SPEC_DRAFT_NGL,
+  # MMPROJ_URL, MMPROJ_OFFLOAD, IMAGE_MIN_TOKENS, IMAGE_MAX_TOKENS, LORA, and
+  # LORA_SCALED.
   OVERRIDE_FILE="$OVERRIDES_DIR/$NAME.conf"
   if [ -f "$OVERRIDE_FILE" ]; then
     # shellcheck disable=SC1090
@@ -457,6 +545,23 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   validate_tensor_split "TENSOR_SPLIT (model $NAME)" "$TENSOR_SPLIT"
   validate_optional_nonnegative_integer "MAIN_GPU (model $NAME)" "$MAIN_GPU"
   validate_shell_safe "DEVICE (model $NAME)" "$DEVICE"
+  validate_bool "CPU_MOE (model $NAME)" "$CPU_MOE"
+  validate_optional_nonnegative_integer "N_CPU_MOE (model $NAME)" "$N_CPU_MOE"
+  validate_single_line "OVERRIDE_TENSOR (model $NAME)" "$OVERRIDE_TENSOR"
+  validate_reasoning "REASONING (model $NAME)" "$REASONING"
+  validate_reasoning_format "REASONING_FORMAT (model $NAME)" "$REASONING_FORMAT"
+  validate_reasoning_budget "REASONING_BUDGET (model $NAME)" "$REASONING_BUDGET"
+  validate_bool "REASONING_PRESERVE (model $NAME)" "$REASONING_PRESERVE"
+  validate_single_line "SPEC_DRAFT_MODEL (model $NAME)" "$SPEC_DRAFT_MODEL"
+  validate_optional_nonnegative_integer "SPEC_DRAFT_N_MIN (model $NAME)" "$SPEC_DRAFT_N_MIN"
+  validate_single_line "SPEC_DRAFT_DEVICE (model $NAME)" "$SPEC_DRAFT_DEVICE"
+  validate_optional_nonnegative_integer "SPEC_DRAFT_NGL (model $NAME)" "$SPEC_DRAFT_NGL"
+  validate_single_line "MMPROJ_URL (model $NAME)" "$MMPROJ_URL"
+  validate_bool "MMPROJ_OFFLOAD (model $NAME)" "$MMPROJ_OFFLOAD"
+  validate_optional_positive_integer "IMAGE_MIN_TOKENS (model $NAME)" "$IMAGE_MIN_TOKENS"
+  validate_optional_positive_integer "IMAGE_MAX_TOKENS (model $NAME)" "$IMAGE_MAX_TOKENS"
+  validate_single_line "LORA (model $NAME)" "$LORA"
+  validate_single_line "LORA_SCALED (model $NAME)" "$LORA_SCALED"
 
   MODEL_SPECIFIC_ARGS=""
   [ "$FLASH_ATTN" = "0" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
@@ -479,6 +584,79 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
     MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
       --spec-type $SPEC_TYPE
       --spec-draft-n-max $SPEC_DRAFT_N_MAX"
+  fi
+  # --spec-draft-model supplies an actual smaller model for draft-* SPEC_TYPE
+  # values (draft-simple, draft-eagle3, ...), unlike the ngram-* self-spec
+  # variants above which need no separate model. Independent of SPEC_TYPE so
+  # a models.d file can set either or both.
+  if [ -n "$SPEC_DRAFT_MODEL" ]; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --spec-draft-model $(shell_quote_token "$SPEC_DRAFT_MODEL")"
+    [ -z "$SPEC_DRAFT_N_MIN" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --spec-draft-n-min $SPEC_DRAFT_N_MIN"
+    [ -z "$SPEC_DRAFT_DEVICE" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --spec-draft-device $(shell_quote_token "$SPEC_DRAFT_DEVICE")"
+    [ -z "$SPEC_DRAFT_NGL" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --spec-draft-ngl $SPEC_DRAFT_NGL"
+  fi
+  # MoE CPU offload: N_CPU_MOE (exact layer count) wins over CPU_MOE (every
+  # expert layer) when both are set, same precedence as llama-server itself.
+  if [ -n "$N_CPU_MOE" ]; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --n-cpu-moe $N_CPU_MOE"
+  elif [ "$CPU_MOE" = "1" ]; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --cpu-moe"
+  fi
+  [ -z "$OVERRIDE_TENSOR" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --override-tensor $(shell_quote_token "$OVERRIDE_TENSOR")"
+  [ -z "$REASONING" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --reasoning $REASONING"
+  [ -z "$REASONING_BUDGET" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --reasoning-budget $REASONING_BUDGET"
+  [ -z "$REASONING_FORMAT" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --reasoning-format $REASONING_FORMAT"
+  [ "$REASONING_PRESERVE" = "1" ] && MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --reasoning-preserve"
+  # --mmproj-url is only emitted when no local MMPROJ (explicit or
+  # folder-auto-detected) is already in play, since the two are alternatives.
+  if [ -n "$MMPROJ_URL" ] && [ -z "$MMPROJ" ]; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --mmproj-url $(shell_quote_token "$MMPROJ_URL")"
+  fi
+  if [ "$MMPROJ_OFFLOAD" = "1" ] && { [ -n "$MMPROJ" ] || [ -n "$MMPROJ_URL" ]; }; then
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --mmproj-offload"
+  fi
+  [ -z "$IMAGE_MIN_TOKENS" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --image-min-tokens $IMAGE_MIN_TOKENS"
+  [ -z "$IMAGE_MAX_TOKENS" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --image-max-tokens $IMAGE_MAX_TOKENS"
+  # llama-server takes one --lora/--lora-scaled flag with a comma-separated
+  # list (repeating the flag is not documented behavior), so multiple
+  # comma-separated entries are rejoined into a single quoted argv token
+  # here rather than emitted as separate flags.
+  if [ -n "$LORA" ]; then
+    IFS=',' read -r -a LORA_ARRAY <<< "$LORA"
+    LORA_JOINED=""
+    for LORA_PATH in "${LORA_ARRAY[@]}"; do
+      LORA_PATH="$(trim_ws "$LORA_PATH")"
+      [ -n "$LORA_PATH" ] || continue
+      LORA_JOINED="${LORA_JOINED:+$LORA_JOINED,}$LORA_PATH"
+    done
+    [ -z "$LORA_JOINED" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --lora $(shell_quote_token "$LORA_JOINED")"
+  fi
+  if [ -n "$LORA_SCALED" ]; then
+    IFS=',' read -r -a LORA_SCALED_ARRAY <<< "$LORA_SCALED"
+    LORA_SCALED_JOINED=""
+    for LORA_SCALED_ENTRY in "${LORA_SCALED_ARRAY[@]}"; do
+      LORA_SCALED_ENTRY="$(trim_ws "$LORA_SCALED_ENTRY")"
+      [ -n "$LORA_SCALED_ENTRY" ] || continue
+      LORA_SCALED_JOINED="${LORA_SCALED_JOINED:+$LORA_SCALED_JOINED,}$LORA_SCALED_ENTRY"
+    done
+    [ -z "$LORA_SCALED_JOINED" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --lora-scaled $(shell_quote_token "$LORA_SCALED_JOINED")"
   fi
   [ -z "$EXTRA_ARGS_RENDERED" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS$EXTRA_ARGS_RENDERED"
 
