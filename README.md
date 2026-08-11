@@ -1,7 +1,7 @@
 # Local AI Server for Linux
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-hero.png" alt="LocalAI local LLM server" width="900">
+  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-hero.webp" alt="LocalAI local LLM server" width="900">
 </div>
 
 <div align="center">
@@ -365,9 +365,9 @@ and service deployment for local LLM environments.
 
 <div align="center">
   <a href="https://buymeacoffee.com/mirhh">
-    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.png" alt="Buy me a coffee" width="300">
+    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.webp" alt="Buy me a coffee" width="300">
   </a>
 </div>
 <div align="center">
-  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/give-it-a-star.png" alt="If this repo helped you, give it a star" width="100%">
+  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/give-it-a-star.webp" alt="If this repo helped you, give it a star" width="100%">
 </div>
