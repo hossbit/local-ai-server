@@ -23,6 +23,18 @@ CPU or GPU acceleration, and
 The server exposes an OpenAI-compatible API and discovers models placed in
 the configured install directory, which defaults to `~/ai/models`.
 
+## ❤️ Support
+
+If you find Local AI Server useful, you can support its continued development:
+
+<div align="center">
+  <a href="https://buymeacoffee.com/mirhh">
+    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.webp" alt="Buy me a coffee" width="300">
+  </a>
+</div>
+
+⭐ Starring and sharing the repository also helps a lot.
+
 <div align="center">
 
 <a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-release.svg" alt="Latest Release" height="68"></a>
