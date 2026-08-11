@@ -23,6 +23,13 @@ CPU or GPU acceleration, and
 The server exposes an OpenAI-compatible API and discovers models placed in
 the configured install directory, which defaults to `~/ai/models`.
 
+<div align="center">
+
+<a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-release.svg" alt="Latest Release" height="68"></a>
+<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-download.svg" alt="Downloads" height="68"></a>
+<a href="https://github.com/hossbit/local-ai-server/stargazers"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-stars.svg" alt="GitHub Stars" height="68"></a>
+</div>
+
 ## ❤️ Support
 
 If you find Local AI Server useful, you can support its continued development:
@@ -34,13 +41,6 @@ If you find Local AI Server useful, you can support its continued development:
 </div>
 
 ⭐ Starring and sharing the repository also helps a lot.
-
-<div align="center">
-
-<a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-release.svg" alt="Latest Release" height="68"></a>
-<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-download.svg" alt="Downloads" height="68"></a>
-<a href="https://github.com/hossbit/local-ai-server/stargazers"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-stars.svg" alt="GitHub Stars" height="68"></a>
-</div>
 
 ## Why Local AI Server?
 
