@@ -384,11 +384,23 @@ else
   rm -f "$KEYS_FILE"
 fi
 
+# llama-swap's performance block controls its system/GPU monitoring stats (what
+# the /metrics endpoint and the UI's Performance view serve). Upstream's key is
+# `disabled` (default false = collecting); there is no `enable` key. This block
+# used to emit `enable: true`, which llama-swap silently ignores (and its
+# validator still accepts, so it never fails loudly) -- meaning METRICS_ENABLED=0
+# could never actually turn the stats off. Emit the real key both ways instead.
 if [ "$METRICS_ENABLED" = "1" ]; then
   cat >> "$CONFIG" <<CFG
 
 performance:
-  enable: true
+  disabled: false
+CFG
+else
+  cat >> "$CONFIG" <<CFG
+
+performance:
+  disabled: true
 CFG
 fi
 
