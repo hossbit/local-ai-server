@@ -50,7 +50,7 @@ status_cmd() {
 check_cmd() {
   local base model candidate models_json chat_response chat=0
 
-  if [ "${1:-}" = "--chat" ]; then
+  if [ "$#" -eq 1 ] && [ "${1:-}" = "--chat" ]; then
     chat=1
   elif [ "$#" -gt 0 ]; then
     fail "usage: localai check [--chat]"

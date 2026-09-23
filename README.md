@@ -245,13 +245,22 @@ llama.cpp chat UI for a specific model:
   (run 'localai ui MODEL_ID', or 'localai models' for exact IDs)
 
 API-key auth is enabled. When the browser prompts for credentials,
-leave the username blank and use an active key ('localai key list')
-as the password.
+leave the username blank and use your saved API key as the password.
+Need a new key? Run 'localai key create browser'; the secret is shown once.
 
 $ localai ui Qwen2.5-Coder-7B-Instruct-Q4_K_M
 llama.cpp chat UI for Qwen2.5-Coder-7B-Instruct-Q4_K_M:
   http://127.0.0.1:11435/upstream/Qwen2.5-Coder-7B-Instruct-Q4_K_M/
 ```
+
+Use `localai ui --open` to launch the dashboard in your desktop browser, or
+`localai ui --open MODEL_ID` for a model's chat UI. On SSH/headless systems,
+use the printed URL from a browser that can reach the server. The dashboard
+in llama-swap v257 includes a searchable model picker, responsive chat, and
+live generation statistics.
+
+`localai key list` shows key metadata, not the secret. Use your saved key or
+create a new one with `localai key create browser`.
 
 Open the printed URL in a browser. If API-key auth is enabled ([API
 keys](#api-keys)), the browser's login prompt wants the username left
@@ -270,7 +279,7 @@ Most users only need these:
 | `localai status` | Show service, process, API, and port status. |
 | `localai check` | Check the API and model list. |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
-| `localai ui [MODEL]` | Print the llama-swap Web UI URL, or one model's llama.cpp chat UI URL. |
+| `localai ui [--open] [MODEL]` | Print a dashboard or model chat URL; optionally open it in your desktop browser. |
 | `localai suggest` | Suggest runtime settings from installed model sizes and detected hardware. |
 | `localai load MODEL` | Warm one model. |
 | `localai unload MODEL` | Release one loaded model. |

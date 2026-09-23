@@ -115,23 +115,24 @@ load_one_model() {
   if model_is_embedding "$model"; then
     curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/embeddings" \
       -H "Content-Type: application/json" \
-      -d "$(jq -n --arg model "$model" '{model: $model, input: "ok"}')" >/dev/null
+      -d "$(jq -n --arg model "$model" '{model: $model, input: "ok"}')" >/dev/null || return $?
   else
     curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
       -H "Content-Type: application/json" \
-      -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 1, stream: false}')" >/dev/null
+      -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 1, stream: false}')" >/dev/null || return $?
   fi
   echo "Loaded: $model"
 }
 
 load_cmd() {
-  local target="${1:-}" model loaded=0 failed=0
+  local target="${1:-}" model models loaded=0 failed=0
 
   [ -n "$target" ] || fail "usage: localai load MODEL|all"
   [ "$#" -eq 1 ] || fail "usage: localai load MODEL|all"
   require_api_tools
 
   if [ "$target" = "all" ]; then
+    models="$(api_models)" || fail "could not list models from $(api_base_url)/v1/models"
     while IFS= read -r model; do
       [ -n "$model" ] || continue
       loaded=1
@@ -139,7 +140,7 @@ load_cmd() {
         echo "Error: failed to load $model" >&2
         failed=1
       fi
-    done < <(api_models)
+    done <<< "$models"
     [ "$loaded" -eq 1 ] || fail "no models are available from $(api_base_url)/v1/models"
     return "$failed"
   fi
@@ -164,30 +165,27 @@ unload_one_model() {
 
   encoded_model="$(url_encode "$model")"
   api_auth_curl_args
-  curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload/${encoded_model}" >/dev/null
+  curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload/${encoded_model}" >/dev/null || return $?
   echo "Unloaded: $model"
 }
 
 unload_cmd() {
-  local target="${1:-}" model unloaded=0
+  local target="${1:-}" models
 
   [ -n "$target" ] || fail "usage: localai unload MODEL|all"
   [ "$#" -eq 1 ] || fail "usage: localai unload MODEL|all"
   require_api_tools
 
   if [ "$target" = "all" ]; then
-    while IFS= read -r model; do
-      [ -n "$model" ] || continue
-      unloaded=1
-    done < <(running_models)
+    models="$(running_models)" || fail "could not list running models from $(api_base_url)/running"
 
-    if [ "$unloaded" -eq 0 ]; then
+    if [ -z "$models" ]; then
       echo "No loaded models to unload."
       return 0
     fi
 
     api_auth_curl_args
-    curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload" >/dev/null
+    curl "${AUTH_CURL_ARGS[@]}" --max-time 30 -fsS -X POST "$(api_base_url)/api/models/unload" >/dev/null || return $?
     echo "Unloaded all loaded models."
     return 0
   fi
@@ -198,20 +196,38 @@ unload_cmd() {
 # ui_cmd: llama-swap ships a built-in management Web UI, and proxies each
 # running llama-server's own chat UI through /upstream/<model>/ (loading the
 # model on first hit, same as any other API request). Neither needs
-# anything installed -- this just prints the URLs so they're discoverable.
+# anything installed. Opening a browser is explicit so SSH usage stays useful.
 ui_cmd() {
-  local target="${1:-}" base registry
+  local target="" base registry url open_browser=0
 
-  [ "$#" -le 1 ] || fail "usage: localai ui [MODEL]"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --open) open_browser=1 ;;
+      --)
+        shift
+        [ "$#" -eq 1 ] && [ -z "$target" ] || fail "usage: localai ui [--open] [MODEL]"
+        target="$1"
+        ;;
+      -*) fail "usage: localai ui [--open] [MODEL]" ;;
+      *)
+        [ -z "$target" ] || fail "usage: localai ui [--open] [MODEL]"
+        target="$1"
+        ;;
+    esac
+    shift
+  done
   base="$(api_base_url)"
 
   if [ -n "$target" ]; then
     installed_model_exists "$target" || fail "model not found: $target"
     echo "llama.cpp chat UI for $target:"
-    echo "  $base/upstream/$(url_encode "$target")/"
+    command -v jq >/dev/null 2>&1 || fail "jq is required for model UI URLs"
+    url="$base/upstream/$(url_encode "$target")/"
+    echo "  $url"
   else
     echo "llama-swap Web UI (model status, load/unload, logs):"
-    echo "  $base/ui"
+    url="$base/ui"
+    echo "  $url"
     echo
     echo "llama.cpp chat UI for a specific model:"
     echo "  $base/upstream/MODEL_ID/"
@@ -222,7 +238,15 @@ ui_cmd() {
   if [ -f "$registry" ] && [ -n "$(api_key_active_secrets "$registry" | head -n1)" ]; then
     echo
     echo "API-key auth is enabled. When the browser prompts for credentials,"
-    echo "leave the username blank and use an active key ('localai key list')"
-    echo "as the password."
+    echo "leave the username blank and use your saved API key as the password."
+    echo "Need a new key? Run 'localai key create browser'; the secret is shown once."
+  fi
+
+  if [ "$open_browser" -eq 1 ]; then
+    if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+      fail "no graphical desktop detected; open the URL above in your browser"
+    fi
+    command -v xdg-open >/dev/null 2>&1 || fail "xdg-open is unavailable; open the URL above in your browser"
+    xdg-open "$url" >/dev/null 2>&1 || fail "could not open the browser; use the URL above"
   fi
 }

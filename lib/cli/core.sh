@@ -15,7 +15,7 @@ Commands:
   logs        Follow service logs
   models      List installed GGUF models
   ui          Print the llama-swap Web UI URL, or a model's llama.cpp chat
-              UI URL with 'localai ui MODEL'
+              UI URL with 'localai ui MODEL'; add --open to launch a browser
   suggest     Suggest runtime settings for installed models
   load        Load one model, or all installed models
   unload      Unload one loaded model, or all loaded models
