@@ -314,10 +314,12 @@ _llama_cpp_format_display_version() {
 # llama_cpp_display_version: the corrected display version for $backend via
 # $BIN_DIR/llama-server (the wrapper script/symlink, i.e. whichever backend
 # is currently *active*). For `localai version` and the install/update
-# summaries.
+# summaries. Filters to the line containing "version:" because llama-server
+# also writes initialization log lines to stderr (merged in via 2>&1), which
+# would otherwise be picked up as the "first line".
 llama_cpp_display_version() {
   local backend="$1" raw
-  raw="$("$BIN_DIR/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}')"
+  raw="$("$BIN_DIR/llama-server" --version 2>&1 | awk '/version:/ {print; exit}')"
   _llama_cpp_format_display_version "$backend" "$raw"
 }
 
@@ -329,7 +331,7 @@ llama_cpp_backend_display_version() {
   local backend="$1" dir raw
   dir="$BIN_DIR/llama.cpp.d/$backend"
   [ -x "$dir/llama-server" ] || return 0
-  raw="$(LD_LIBRARY_PATH="$dir:${LD_LIBRARY_PATH:-}" "$dir/llama-server" --version 2>&1 | awk 'NR == 1 {print; exit}')"
+  raw="$(LD_LIBRARY_PATH="$dir:${LD_LIBRARY_PATH:-}" "$dir/llama-server" --version 2>&1 | awk '/version:/ {print; exit}')"
   _llama_cpp_format_display_version "$backend" "$raw"
 }
 
