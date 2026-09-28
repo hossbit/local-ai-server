@@ -286,6 +286,32 @@ llama_cpp_backend_version() {
     ' || true
 }
 
+# llama_cpp_display_tag: prints the installed llama.cpp *build tag* for
+# $backend (e.g. b11223) -- the identity the updater compares against and
+# that LLAMA_CPP_VERSION pins. This is the short, canonical answer to "which
+# version is installed", unlike llama_cpp_display_version's raw
+# "version: 0.5.0-dev (build 11223, commit ...)" line, whose leading
+# semantic version is upstream's cosmetic label and never matches a release
+# tag. Prebuilt backends always self-report a b[NUM] build (a stable
+# release's binaries physically live in its nightly b-tag); cuda records the
+# exact resolved tag at build time, which may be either family (b[NUM] or
+# vX.Y.Z), so it's printed as-is. Prints nothing if the slot has no binary.
+llama_cpp_display_tag() {
+  local backend="$1" version
+
+  if [ "$backend" = "cuda" ] && command -v cuda_installed_revision >/dev/null 2>&1; then
+    version="$(cuda_installed_revision)"
+  else
+    version="$(llama_cpp_backend_version "$backend")"
+  fi
+  [ -n "$version" ] || return 0
+
+  case "$version" in
+    b*|v*) printf '%s\n' "$version" ;;
+    *) printf 'b%s\n' "$version" ;;
+  esac
+}
+
 # _llama_cpp_format_display_version: given a backend name and the raw first
 # line of `llama-server --version` for it, returns the human-facing
 # "version: N (hash)" line -- substituting cuda's recorded build revision

@@ -78,7 +78,7 @@ update_cmd() {
 }
 
 version_cmd() {
-  local backend=""
+  local backend="" version_tag=""
 
   echo "LocalAI: $LOCALAI_VERSION"
   echo "Install directory: $AI_DIR"
@@ -86,7 +86,13 @@ version_cmd() {
   [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ] && backend="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
 
   if [ -x "$BIN_DIR/llama-server" ]; then
-    echo "llama.cpp: $(llama_cpp_display_version "$backend")"
+    # Show the canonical installed build tag (e.g. b11223) rather than
+    # llama-server's raw "version: 0.5.0-dev (build N, commit ...)" label.
+    # Fall back to the raw line only if the tag can't be derived (e.g. a
+    # missing backend marker), so this never regresses to printing nothing.
+    version_tag="$(llama_cpp_display_tag "$backend")"
+    [ -n "$version_tag" ] || version_tag="$(llama_cpp_display_version "$backend")"
+    echo "llama.cpp: $version_tag"
   else
     echo "llama.cpp: not installed"
   fi
