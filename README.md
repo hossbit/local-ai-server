@@ -253,6 +253,30 @@ llama.cpp chat UI for Qwen2.5-Coder-7B-Instruct-Q4_K_M:
   http://127.0.0.1:11435/upstream/Qwen2.5-Coder-7B-Instruct-Q4_K_M/
 ```
 
+LocalAI also provides a searchable workspace with responsive model cards and
+light/dark styling. It is a local snapshot with links to the live upstream UIs:
+
+```bash
+localai ui --help                # all destinations and examples
+localai ui --home --open         # model library and dashboard shortcuts
+localai ui --chat --open         # chat playground
+localai ui --models --open       # load/unload models
+localai ui --logs --open         # troubleshoot errors
+localai ui --performance --open  # system statistics (when metrics are enabled)
+localai ui --hardware --open     # hardware overview
+localai ui --settings --open     # dashboard preferences
+```
+
+Regenerate the workspace after adding models by running `localai reload`, then
+`localai ui --home --open`. The page stores no API keys and requires no extra
+server or runtime. On a remote machine, use the printed HTTP dashboard links.
+
+Newer llama.cpp builds support `SPEC_DRAFT_SAMPLING=probabilistic` in a model's
+`models.d` override for `SPEC_TYPE=draft-simple` or `draft-mtp`. The global
+`LOCALAI_SPEC_DRAFT_SAMPLING` is empty by default. A requested setting fails with
+a useful error on older engines that lack `--spec-draft-sampling`; other draft
+modes ignore it. Existing `EXTRA_ARGS` overrides remain available.
+
 Use `localai ui --open` to launch the dashboard in your desktop browser, or
 `localai ui --open MODEL_ID` for a model's chat UI. On SSH/headless systems,
 use the printed URL from a browser that can reach the server. The dashboard

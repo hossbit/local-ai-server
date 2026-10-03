@@ -221,7 +221,7 @@ backend_uses_gpu_layers() {
 # otherwise have partially offloaded successfully. Older pinned llama.cpp
 # builds may predate 'auto', hence the capability flag.
 compute_model_runtime_defaults() {
-  local model_bytes="$1" ram_bytes="$2" vram_bytes="$3" backend="$4"
+  local model_bytes="$1" ram_bytes="$2" backend="$4"
   local ngl_auto_supported="${5:-1}"
   # gpu_layers uses "-" rather than an empty string as its not-applicable
   # sentinel: bash's `read` collapses consecutive tab delimiters (tab is
@@ -664,6 +664,8 @@ api_auth_curl_args() {
   [ -f "$registry" ] || return 0
   secret="$(api_key_active_secrets "$registry" | head -n1)"
   [ -n "$secret" ] || return 0
+  # Used by scripts sourcing this library.
+  # shellcheck disable=SC2034
   AUTH_CURL_ARGS=(-H "Authorization: Bearer $secret")
 }
 

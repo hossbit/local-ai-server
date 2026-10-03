@@ -197,29 +197,84 @@ unload_cmd() {
 # running llama-server's own chat UI through /upstream/<model>/ (loading the
 # model on first hit, same as any other API request). Neither needs
 # anything installed. Opening a browser is explicit so SSH usage stays useful.
-ui_cmd() {
-  local target="" base registry url open_browser=0
+ui_usage() {
+  cat <<'HELP'
+Usage: localai ui [--open] [DESTINATION]
 
+  --home         Searchable model library and dashboard shortcuts
+  --chat         Chat playground
+  --models       Load and unload models
+  --logs         Server logs
+  --performance  Live statistics (when metrics are enabled)
+  --hardware     Hardware overview
+  --settings     Dashboard preferences
+  --activity     Request activity
+  MODEL          One model's llama.cpp chat interface
+  --open         Open the destination on this Linux desktop
+  -h, --help     Show this help
+
+Examples:
+  localai ui --home --open
+  localai ui --chat --open
+  localai ui --open MODEL
+
+Without a destination, prints the dashboard URL. On SSH, use an HTTP
+URL from a browser that can reach the server; --home is a local file.
+Start the server with 'localai start'. Models load on the first chat.
+HELP
+}
+
+ui_cmd() {
+  local target="" base registry url open_browser=0 home_page=0 section=""
+
+  if [ "$#" -eq 1 ] && { [ "$1" = --help ] || [ "$1" = -h ]; }; then
+    ui_usage
+    return 0
+  fi
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --open) open_browser=1 ;;
+      --home) home_page=1 ;;
+      --chat|--models|--logs|--performance|--hardware|--settings|--activity)
+        [ -z "$section" ] || fail "choose one UI section"
+        section="${1#--}"
+        [ "$section" != chat ] || section=playground
+        ;;
       --)
         shift
-        [ "$#" -eq 1 ] && [ -z "$target" ] || fail "usage: localai ui [--open] [MODEL]"
+        [ "$#" -eq 1 ] && [ -z "$target" ] || fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]"
         target="$1"
         ;;
-      -*) fail "usage: localai ui [--open] [MODEL]" ;;
+      -*) fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]" ;;
       *)
-        [ -z "$target" ] || fail "usage: localai ui [--open] [MODEL]"
+        [ -z "$target" ] || fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]"
         target="$1"
         ;;
     esac
     shift
   done
+  [ -z "$target" ] || { [ "$home_page" -eq 0 ] && [ -z "$section" ]; } || fail "MODEL cannot be combined with a UI section or --home"
+  [ "$home_page" -eq 0 ] || [ -z "$section" ] || fail "--home cannot be combined with a UI section"
   base="$(api_base_url)"
 
-  if [ -n "$target" ]; then
+  if [ "$home_page" -eq 1 ]; then
+    ui_home_page "$base"
+    url="file://$(jq -nr --arg v "$CONF_DIR/ui/index.html" '$v|split("/")|map(@uri)|join("/")')"
+    echo "LocalAI workspace (model library and dashboard shortcuts):"
+    echo "  $url"
+  elif [ -n "$section" ]; then
+    url="$base/ui#/$section"
+    [ "$section" != activity ] || url="$base/ui#/"
+    if [ "$section" = performance ] && [ "${LOCALAI_METRICS_ENABLED:-1}" = 0 ]; then
+      echo "Performance collection is disabled. Enable LOCALAI_METRICS_ENABLED and run localai reload to see statistics."
+    fi
+    echo "LocalAI dashboard — $section:"
+    echo "  $url"
+  elif [ -n "$target" ]; then
     installed_model_exists "$target" || fail "model not found: $target"
+    if model_is_embedding "$target"; then
+      fail "embedding models use the embeddings API; manage them with localai ui --models"
+    fi
     echo "llama.cpp chat UI for $target:"
     command -v jq >/dev/null 2>&1 || fail "jq is required for model UI URLs"
     url="$base/upstream/$(url_encode "$target")/"
@@ -232,6 +287,9 @@ ui_cmd() {
     echo "llama.cpp chat UI for a specific model:"
     echo "  $base/upstream/MODEL_ID/"
     echo "  (run 'localai ui MODEL_ID', or 'localai models' for exact IDs)"
+    echo
+    echo "For the searchable workspace: localai ui --home --open"
+    echo "For more destinations: localai ui --help"
   fi
 
   registry="$(api_key_registry_path)"
@@ -250,3 +308,46 @@ ui_cmd() {
     xdg-open "$url" >/dev/null 2>&1 || fail "could not open the browser; use the URL above"
   fi
 }
+
+# A local, secret-free launch page; live controls remain in upstream's UI.
+ui_home_page() (
+  set -e
+  local base="$1" template="" candidate line id rel path kind href escaped_id escaped_rel escaped_base entries
+  for candidate in "$SCRIPT_DIR/lib/ui.html" "$SCRIPT_DIR/../lib/ui.html"; do
+    if [ -f "$candidate" ]; then template="$candidate"; break; fi
+  done
+  [ -n "$template" ] || fail "missing LocalAI launch page template; run localai update"
+  command -v jq >/dev/null 2>&1 || fail "jq is required for the launch page"
+  entries="$(localai_model_entries "$MODELS_DIR")" || fail "could not read the model library"
+  mkdir -p "$CONF_DIR/ui"
+  candidate="$(mktemp "$CONF_DIR/ui/index.XXXXXX")"
+  trap 'rm -f -- "$candidate"' EXIT
+  escaped_base="$(jq -nr --arg v "$base" '$v|@html')"
+  while IFS= read -r line; do
+    case "$line" in
+      '<!-- LOCALAI_NAV -->')
+        printf '<nav aria-label="Workspace"><a href="%s/ui#/playground"><strong>Start a chat →</strong><span>Chat, choose models, and tune responses</span></a><a href="%s/ui#/models"><strong>Manage models →</strong><span>Load models and free memory</span></a><a href="%s/ui#/logs"><strong>View logs →</strong><span>Find and troubleshoot server errors</span></a><a href="%s/ui#/performance"><strong>Performance →</strong><span>Explore live system statistics</span></a></nav>\n' "$escaped_base" "$escaped_base" "$escaped_base" "$escaped_base"
+        ;;
+      '<!-- LOCALAI_MODELS -->')
+        while IFS=$'\t' read -r id rel path; do
+          [ -n "$id" ] || continue
+          escaped_id="$(jq -nr --arg v "$id" '$v|@html')"
+          escaped_rel="$(jq -nr --arg v "$rel" '$v|@html')"
+          kind=Chat
+          model_is_embedding "$id" && kind=Embedding
+          href="$escaped_base/upstream/$(url_encode "$id")/"
+          printf '<article><span class="tag">%s</span><h3>%s</h3><p>%s</p>' "$kind" "$escaped_id" "$escaped_rel"
+          if [ "$kind" = Chat ]; then
+            printf '<a class="action" href="%s" aria-label="Chat with %s">Open chat →</a>' "$href" "$escaped_id"
+          else
+            printf '<a class="action" href="%s/ui#/models">Manage embedding model →</a>' "$escaped_base"
+          fi
+          printf '</article>\n'
+        done <<< "$entries"
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$template" > "$candidate"
+  chmod 600 "$candidate"
+  mv -f "$candidate" "$CONF_DIR/ui/index.html"
+)

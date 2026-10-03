@@ -60,6 +60,7 @@ TENSOR_SPLIT="${TENSOR_SPLIT:-$LOCALAI_TENSOR_SPLIT}"
 MAIN_GPU="${MAIN_GPU:-$LOCALAI_MAIN_GPU}"
 DEVICE="${DEVICE:-$LOCALAI_DEVICE}"
 SPEC_TYPE="${SPEC_TYPE:-$LOCALAI_SPEC_TYPE}"
+SPEC_DRAFT_SAMPLING="${SPEC_DRAFT_SAMPLING:-$LOCALAI_SPEC_DRAFT_SAMPLING}"
 SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-$LOCALAI_SPEC_DRAFT_N_MAX}"
 CPU_MOE="${CPU_MOE:-$LOCALAI_CPU_MOE}"
 N_CPU_MOE="${N_CPU_MOE:-$LOCALAI_N_CPU_MOE}"
@@ -75,6 +76,13 @@ AUTO_TUNE="${AUTO_TUNE:-$LOCALAI_AUTO_TUNE}"
 METRICS_ENABLED="${METRICS_ENABLED:-$LOCALAI_METRICS_ENABLED}"
 PRELOAD_MODELS="${PRELOAD_MODELS:-$LOCALAI_PRELOAD_MODELS}"
 EMBEDDING_TTL="${EMBEDDING_TTL:-$LOCALAI_EMBEDDING_TTL}"
+
+validate_spec_draft_sampling() {
+  case "$2" in
+    ""|greedy|probabilistic) ;;
+    *) echo "Error: $1 must be greedy or probabilistic when set." >&2; exit 1 ;;
+  esac
+}
 
 validate_optional_positive_integer() {
   local name="$1"
@@ -253,6 +261,7 @@ validate_bool METRICS_ENABLED "$METRICS_ENABLED"
 validate_bool CPU_MOE "$CPU_MOE"
 validate_bool REASONING_PRESERVE "$REASONING_PRESERVE"
 validate_spec_type SPEC_TYPE "$SPEC_TYPE"
+validate_spec_draft_sampling SPEC_DRAFT_SAMPLING "$SPEC_DRAFT_SAMPLING"
 validate_split_mode SPLIT_MODE "$SPLIT_MODE"
 validate_tensor_split TENSOR_SPLIT "$TENSOR_SPLIT"
 validate_shell_safe DEVICE "$DEVICE"
@@ -344,6 +353,7 @@ GLOBAL_CACHE_TYPE_K="$CACHE_TYPE_K"
 GLOBAL_CACHE_TYPE_V="$CACHE_TYPE_V"
 GLOBAL_FLASH_ATTN="$FLASH_ATTN"
 GLOBAL_SPEC_TYPE="$SPEC_TYPE"
+GLOBAL_SPEC_DRAFT_SAMPLING="$SPEC_DRAFT_SAMPLING"
 GLOBAL_SPEC_DRAFT_N_MAX="$SPEC_DRAFT_N_MAX"
 GLOBAL_SPLIT_MODE="$SPLIT_MODE"
 GLOBAL_TENSOR_SPLIT="$TENSOR_SPLIT"
@@ -359,6 +369,16 @@ GLOBAL_REASONING="$REASONING"
 GLOBAL_REASONING_BUDGET="$REASONING_BUDGET"
 GLOBAL_REASONING_FORMAT="$REASONING_FORMAT"
 GLOBAL_REASONING_PRESERVE="$REASONING_PRESERVE"
+
+# Build candidates beside their destinations so failed validation cannot
+# truncate the working configuration, and each final rename stays atomic.
+MODEL_ENTRIES="$(localai_model_entries "$MODELS_DIR")"
+CONFIG_DEST="$CONFIG"
+KEYS_DEST="$KEYS_FILE"
+CONFIG="$(mktemp "${CONFIG_DEST}.XXXXXX")"
+KEYS_FILE=""
+trap 'rm -f -- "$CONFIG" "${KEYS_FILE:-}"' EXIT
+KEYS_FILE="$(mktemp "${KEYS_DEST}.XXXXXX")"
 
 cat > "$CONFIG" <<CFG
 healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
@@ -449,6 +469,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   CACHE_TYPE_V="$GLOBAL_CACHE_TYPE_V"
   FLASH_ATTN="$GLOBAL_FLASH_ATTN"
   SPEC_TYPE="$GLOBAL_SPEC_TYPE"
+  SPEC_DRAFT_SAMPLING="$GLOBAL_SPEC_DRAFT_SAMPLING"
   SPEC_DRAFT_N_MAX="$GLOBAL_SPEC_DRAFT_N_MAX"
   SPLIT_MODE="$GLOBAL_SPLIT_MODE"
   TENSOR_SPLIT="$GLOBAL_TENSOR_SPLIT"
@@ -572,6 +593,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   fi
   validate_bool "FLASH_ATTN (model $NAME)" "$FLASH_ATTN"
   validate_spec_type "SPEC_TYPE (model $NAME)" "$SPEC_TYPE"
+  validate_spec_draft_sampling "SPEC_DRAFT_SAMPLING (model $NAME)" "$SPEC_DRAFT_SAMPLING"
   validate_optional_positive_integer "SPEC_DRAFT_N_MAX (model $NAME)" "$SPEC_DRAFT_N_MAX"
   validate_optional_nonnegative_integer "TTL (model $NAME)" "$TTL"
   validate_split_mode "SPLIT_MODE (model $NAME)" "$SPLIT_MODE"
@@ -621,6 +643,18 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
     MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
       --spec-type $SPEC_TYPE
       --spec-draft-n-max $SPEC_DRAFT_N_MAX"
+  fi
+  if [ -n "$SPEC_DRAFT_SAMPLING" ]; then
+    case "$SPEC_TYPE" in
+      draft-simple|draft-mtp)
+        if ! "$BIN" --help 2>&1 | grep -- '--spec-draft-sampling' >/dev/null; then
+          echo "Error: model $NAME requests SPEC_DRAFT_SAMPLING but llama-server does not support it; update llama.cpp or clear the setting." >&2
+          exit 1
+        fi
+        MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --spec-draft-sampling $SPEC_DRAFT_SAMPLING"
+        ;;
+    esac
   fi
   # --spec-draft-model supplies an actual smaller model for draft-* SPEC_TYPE
   # values (draft-simple, draft-eagle3, ...), unlike the ngram-* self-spec
@@ -767,7 +801,17 @@ MODELCFG
     printf '%s\n' "$EXTRA_MODEL_YAML" >> "$CONFIG"
   fi
   printf '\n' >> "$CONFIG"
-done < <(localai_model_entries "$MODELS_DIR")
+done <<< "$MODEL_ENTRIES"
+
+if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
+  mv -f -- "$KEYS_FILE" "$KEYS_DEST"
+else
+  rm -f -- "$KEYS_DEST"
+fi
+mv -f -- "$CONFIG" "$CONFIG_DEST"
+CONFIG="$CONFIG_DEST"
+# Do not delete the committed destinations when the EXIT trap runs.
+trap - EXIT
 
 if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
   echo "Generated $CONFIG with $MODEL_COUNT model(s) and $ACTIVE_API_KEY_COUNT active API key(s)."
