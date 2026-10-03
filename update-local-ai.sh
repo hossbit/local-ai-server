@@ -260,6 +260,9 @@ refresh_localai_libs() {
     mkdir -p "$LIB_DIR/$(dirname "$rel")"
     install -m644 "$path" "$LIB_DIR/$rel"
   done < <(find "$LOCALAI_SOURCE_DIR/lib" -type f | sort)
+  # Remove the retired custom workspace, preserving other user files.
+  rm -f -- "$LIB_DIR/ui.html" "$CONF_DIR/ui/index.html"
+  rmdir -- "$CONF_DIR/ui" 2>/dev/null || true
 }
 
 ###############################################################################

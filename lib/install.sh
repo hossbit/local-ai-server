@@ -512,6 +512,9 @@ install_localai_libs() {
     mkdir -p "$dest_dir/$(dirname "$rel")"
     install -m644 "$path" "$dest_dir/$rel"
   done < <(find "$source_dir/lib" -type f | sort)
+  # Remove the retired custom workspace, preserving other user files.
+  rm -f -- "$dest_dir/ui.html" "$CONF_DIR/ui/index.html"
+  rmdir -- "$CONF_DIR/ui" 2>/dev/null || true
 }
 
 # ensure_cli_on_path: makes sure $LOCALAI_USER_BIN_DIR (where the localai CLI

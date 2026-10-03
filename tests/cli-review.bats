@@ -89,32 +89,24 @@ setup() {
   [[ "$output" == *'/ui#/logs'* ]]
 }
 @test "UI rejects ambiguous destinations" {
-  run ui_cmd --home --chat
+  run ui_cmd --models --chat
   [ "$status" -ne 0 ]
   run ui_cmd --logs chat
   [ "$status" -ne 0 ]
 }
-@test "launch page escapes model names and keeps keys out" {
-  source "$REPO_DIR/lib/common.sh"
-  SCRIPT_DIR="$REPO_DIR"
-  MODELS_DIR="$BATS_TEST_TMPDIR/models"
+@test "removed HTML workspace option is rejected without creating files" {
   CONF_DIR="$BATS_TEST_TMPDIR/conf"
-  mkdir -p "$MODELS_DIR"
-  touch "$MODELS_DIR/a & b.gguf" "$MODELS_DIR/text-embedding.gguf"
   run ui_cmd --home
-  [ "$status" -eq 0 ]
-  grep -q 'a &amp; b' "$CONF_DIR/ui/index.html"
-  grep -q 'a%20%26%20b' "$CONF_DIR/ui/index.html"
-  ! grep -q 'LOCALAI_MODELS' "$CONF_DIR/ui/index.html"
-  ! grep -q 'sk-localai-' "$CONF_DIR/ui/index.html"
-  [ "$(stat -c %a "$CONF_DIR/ui/index.html")" = 600 ]
+  [ "$status" -ne 0 ]
+  [ ! -e "$CONF_DIR/ui/index.html" ]
 }
 
 @test "UI help is available without model or browser dependencies" {
   run ui_cmd --help
   [ "$status" -eq 0 ]
   [[ "$output" == *'Usage: localai ui'* ]]
-  [[ "$output" == *'--home'* ]]
+  [[ "$output" == *'--chat'* ]]
+  [[ "$output" != *'--home'* ]]
   run ui_cmd -h
   [ "$status" -eq 0 ]
 }

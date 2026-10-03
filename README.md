@@ -253,12 +253,11 @@ llama.cpp chat UI for Qwen2.5-Coder-7B-Instruct-Q4_K_M:
   http://127.0.0.1:11435/upstream/Qwen2.5-Coder-7B-Instruct-Q4_K_M/
 ```
 
-LocalAI also provides a searchable workspace with responsive model cards and
-light/dark styling. It is a local snapshot with links to the live upstream UIs:
+LocalAI is a Bash project. These commands open llama-swap’s built-in dashboard
+and llama.cpp’s chat interface:
 
 ```bash
 localai ui --help                # all destinations and examples
-localai ui --home --open         # model library and dashboard shortcuts
 localai ui --chat --open         # chat playground
 localai ui --models --open       # load/unload models
 localai ui --logs --open         # troubleshoot errors
@@ -267,9 +266,8 @@ localai ui --hardware --open     # hardware overview
 localai ui --settings --open     # dashboard preferences
 ```
 
-Regenerate the workspace after adding models by running `localai reload`, then
-`localai ui --home --open`. The page stores no API keys and requires no extra
-server or runtime. On a remote machine, use the printed HTTP dashboard links.
+No separate frontend is installed. On a remote machine, use the printed HTTP
+dashboard links in a browser that can reach the server.
 
 Newer llama.cpp builds support `SPEC_DRAFT_SAMPLING=probabilistic` in a model's
 `models.d` override for `SPEC_TYPE=draft-simple` or `draft-mtp`. The global

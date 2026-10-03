@@ -574,3 +574,21 @@ JSON
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+@test "library refresh removes retired workspace and preserves custom files" {
+  local source_dir="$BATS_TEST_TMPDIR/source"
+  local dest_dir="$BATS_TEST_TMPDIR/lib"
+  mkdir -p "$source_dir/lib" "$dest_dir" "$CONF_DIR/ui"
+  printf '# helper\n' > "$source_dir/lib/helper.sh"
+  touch "$dest_dir/ui.html" "$CONF_DIR/ui/index.html" "$CONF_DIR/ui/custom.txt"
+  run install_localai_libs "$source_dir" "$dest_dir"
+  [ "$status" -eq 0 ]
+  [ -f "$dest_dir/helper.sh" ]
+  [ ! -e "$dest_dir/ui.html" ]
+  [ ! -e "$CONF_DIR/ui/index.html" ]
+  [ -f "$CONF_DIR/ui/custom.txt" ]
+  rm "$CONF_DIR/ui/custom.txt"
+  run install_localai_libs "$source_dir" "$dest_dir"
+  [ "$status" -eq 0 ]
+  [ ! -d "$CONF_DIR/ui" ]
+}

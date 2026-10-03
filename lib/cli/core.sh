@@ -16,7 +16,7 @@ Commands:
   models      List installed GGUF models
   ui          Print the llama-swap Web UI URL, or a model's llama.cpp chat
               UI URL with 'localai ui MODEL'; add --open to launch a browser
-              --home: searchable workspace; --chat/--models/--logs/--performance
+              Dashboard shortcuts: --chat/--models/--logs/--performance
               --hardware/--settings/--activity: jump directly to a dashboard section
   suggest     Suggest runtime settings for installed models
   load        Load one model, or all installed models
