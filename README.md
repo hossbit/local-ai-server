@@ -202,9 +202,9 @@ the actual GGUF file size as the base estimate, not an exact parameter-count
 formula. Runtime memory also depends on context length, KV cache type, batch
 size, backend buffers, and operating-system headroom.
 
-GPU-backed installs auto-tune per-model GPU layers, KV cache type, and
-flash-attention from your hardware, and enable free self-speculative decoding
-by default. On multi-GPU systems, `LOCALAI_SPLIT_MODE`, `LOCALAI_TENSOR_SPLIT`,
+GPU-backed installs auto-tune per-model GPU layers and flash-attention, use
+compatible f16 KV cache defaults, and enable self-speculative decoding by
+default. Compatible models can use quantized KV cache through per-model overrides. On multi-GPU systems, `LOCALAI_SPLIT_MODE`, `LOCALAI_TENSOR_SPLIT`,
 `LOCALAI_MAIN_GPU`, and `LOCALAI_DEVICE` control how models are placed across
 devices. See the wiki for per-model overrides (`models.d`), multi-GPU tuning,
 MoE CPU offload, reasoning-model tuning, multimodal `--mmproj` setup,

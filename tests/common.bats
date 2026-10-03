@@ -201,3 +201,11 @@ setup_models_dir() {
   run localai_model_bytes "$MODELS_DIR/split/model-00001-of-00002.gguf"
   [ "$output" = "3" ]
 }
+
+@test "GPU automatic cache defaults support non-block-aligned attention heads" {
+  # GGUF size and VRAM cannot tell whether a model supports quantized cache.
+  run compute_model_runtime_defaults 20000000 16000000000 4000000000 vulkan
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\tf16\tf16' ]]
+  [[ "$output" == *$'\tauto\t'* ]]
+}

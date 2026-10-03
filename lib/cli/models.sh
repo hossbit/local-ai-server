@@ -242,7 +242,9 @@ ui_cmd() {
         ;;
       --)
         shift
-        [ "$#" -eq 1 ] && [ -z "$target" ] || fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]"
+        if [ "$#" -ne 1 ] || [ -n "$target" ]; then
+          fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]"
+        fi
         target="$1"
         ;;
       -*) fail "usage: localai ui [--open] [--home|--chat|--models|--logs|--performance|--hardware|--settings|--activity|MODEL]" ;;
@@ -253,7 +255,9 @@ ui_cmd() {
     esac
     shift
   done
-  [ -z "$target" ] || { [ "$home_page" -eq 0 ] && [ -z "$section" ]; } || fail "MODEL cannot be combined with a UI section or --home"
+  if [ -n "$target" ] && { [ "$home_page" -ne 0 ] || [ -n "$section" ]; }; then
+    fail "MODEL cannot be combined with a UI section or --home"
+  fi
   [ "$home_page" -eq 0 ] || [ -z "$section" ] || fail "--home cannot be combined with a UI section"
   base="$(api_base_url)"
 

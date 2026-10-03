@@ -238,8 +238,9 @@ compute_model_runtime_defaults() {
 
   if backend_uses_gpu_layers "$backend"; then
     flash=1
-    cache_k=q8_0
-    cache_v=q8_0
+    # Quantized cache blocks require compatible attention head dimensions.
+    # File size/VRAM cannot establish that, so automatic defaults stay f16.
+    # Compatible models can opt into q8_0 in models.d after auto-tuning.
     [ "$ngl_auto_supported" != "1" ] || gpu_layers=auto
   fi
 
