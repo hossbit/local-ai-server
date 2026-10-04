@@ -33,11 +33,7 @@ models_cmd() {
   while IFS=$'\t' read -r id rel path; do
     [ -n "$id" ] || continue
 
-    if [[ "${id,,}" == *qwen3*embedding* ]] || model_is_embedding_name "$id"; then
-      model_type="embedding"
-    else
-      model_type="chat"
-    fi
+    model_type="$(localai_model_type "$id")"
 
     model_bytes="$(localai_model_bytes "$path")"
     size_display="$(format_bytes_gib "$model_bytes")"
@@ -103,7 +99,7 @@ installed_model_exists() {
 }
 
 model_is_embedding() {
-  model_is_embedding_name "$1"
+  [ "$(localai_model_type "$1")" = embedding ]
 }
 
 load_one_model() {
@@ -116,6 +112,14 @@ load_one_model() {
     curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/embeddings" \
       -H "Content-Type: application/json" \
       -d "$(jq -n --arg model "$model" '{model: $model, input: "ok"}')" >/dev/null || return $?
+  elif [ "$(localai_model_type "$model")" = reranking ]; then
+    curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/rerank" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg model "$model" '{model:$model,query:"ok",documents:["ok"]}')" >/dev/null || return $?
+  elif [ "$(localai_model_type "$model")" = completion ]; then
+    curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/completions" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg model "$model" '{model:$model,prompt:"ok",max_tokens:1}')" >/dev/null || return $?
   else
     curl "${AUTH_CURL_ARGS[@]}" --max-time "$LOCALAI_HEALTH_CHECK_TIMEOUT" -fsS "$base/v1/chat/completions" \
       -H "Content-Type: application/json" \
@@ -269,6 +273,9 @@ ui_cmd() {
     installed_model_exists "$target" || fail "model not found: $target"
     if model_is_embedding "$target"; then
       fail "embedding models use the embeddings API; manage them with localai ui --models"
+    fi
+    if [ "$(localai_model_type "$target")" = reranking ]; then
+      fail "reranking models use the reranking API; manage them with localai ui --models"
     fi
     echo "llama.cpp chat UI for $target:"
     command -v jq >/dev/null 2>&1 || fail "jq is required for model UI URLs"

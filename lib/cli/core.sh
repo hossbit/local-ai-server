@@ -18,7 +18,7 @@ Commands:
               UI URL with 'localai ui MODEL'; add --open to launch a browser
               Dashboard shortcuts: --chat/--models/--logs/--performance
               --hardware/--settings/--activity: jump directly to a dashboard section
-  suggest     Suggest runtime settings for installed models
+  suggest     Suggest settings; --benchmark MODEL measures current speed
   load        Load one model, or all installed models
   unload      Unload one loaded model, or all loaded models
   key         Manage API keys (create, list, revoke, rotate)

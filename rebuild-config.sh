@@ -276,37 +276,6 @@ case "$EXTRA_LLAMA_ARGS" in
     ;;
 esac
 
-# Flags that never vary per model: concurrency, batching, and template/mmap
-# behavior. Per-model tunables (flash-attn, spec-decoding, mmproj, ...) are
-# built separately for each model below since auto-tune and models.d
-# overrides can change them per model.
-COMMON_EXTRA_ARGS=""
-[ -z "$PARALLEL" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --parallel $PARALLEL"
-[ -z "$BATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --batch-size $BATCH_SIZE"
-[ -z "$UBATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --ubatch-size $UBATCH_SIZE"
-[ "$JINJA" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --jinja"
-# --mlock/--no-mmap are deprecated upstream in favor of --load-mode; map the
-# two booleans onto it so generated configs don't trigger llama-server's
-# deprecation warning. mmap is the llama-server default, so it's omitted.
-if [ "$MLOCK" = "1" ] && [ "$NO_MMAP" = "1" ]; then
-  LOAD_MODE="mlock"
-elif [ "$MLOCK" = "1" ]; then
-  LOAD_MODE="mmap+mlock"
-elif [ "$NO_MMAP" = "1" ]; then
-  LOAD_MODE="none"
-else
-  LOAD_MODE=""
-fi
-[ -z "$LOAD_MODE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --load-mode $LOAD_MODE"
-[ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      $EXTRA_LLAMA_ARGS"
-[ -z "$MTP_MODELS_DIR" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
-      --models-dir $(shell_quote_token "$MTP_MODELS_DIR")"
 
 mkdir -p "$CONF_DIR" "$MODELS_DIR" "$OVERRIDES_DIR" "$KEYS_DIR"
 
@@ -347,6 +316,15 @@ fi
 # Snapshot the global defaults once; the per-model loop resets its working
 # copies from these on every iteration so a models.d override or an
 # auto-tune result for one model never leaks into the next.
+GLOBAL_THREADS="$THREADS"
+GLOBAL_PARALLEL="$PARALLEL"
+GLOBAL_BATCH_SIZE="$BATCH_SIZE"
+GLOBAL_UBATCH_SIZE="$UBATCH_SIZE"
+GLOBAL_JINJA="$JINJA"
+GLOBAL_MLOCK="$MLOCK"
+GLOBAL_NO_MMAP="$NO_MMAP"
+GLOBAL_EXTRA_LLAMA_ARGS="$EXTRA_LLAMA_ARGS"
+GLOBAL_MTP_MODELS_DIR="$MTP_MODELS_DIR"
 GLOBAL_CTX_SIZE="$CTX_SIZE"
 GLOBAL_N_GPU_LAYERS="$N_GPU_LAYERS"
 GLOBAL_CACHE_TYPE_K="$CACHE_TYPE_K"
@@ -452,17 +430,32 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   esac
 
   IS_EMBEDDING=0
+  MODEL_TYPE=chat
+  POOLING=""
   MODEL_EXTRA_ARGS=""
   if [[ "${NAME,,}" == *qwen3*embedding* ]]; then
       MODEL_EXTRA_ARGS="--embeddings --pooling last"
       IS_EMBEDDING=1
+      MODEL_TYPE=embedding
+      POOLING=last
   elif model_is_embedding_name "$NAME"; then
       MODEL_EXTRA_ARGS="--embeddings"
       IS_EMBEDDING=1
+      MODEL_TYPE=embedding
   fi
+  if [[ "${NAME,,}" == *rerank* ]]; then MODEL_TYPE=reranking; fi
 
   # Reset per-model working values to the global defaults before auto-tune
   # and models.d overrides are applied.
+  THREADS="$GLOBAL_THREADS"
+  PARALLEL="$GLOBAL_PARALLEL"
+  BATCH_SIZE="$GLOBAL_BATCH_SIZE"
+  UBATCH_SIZE="$GLOBAL_UBATCH_SIZE"
+  JINJA="$GLOBAL_JINJA"
+  MLOCK="$GLOBAL_MLOCK"
+  NO_MMAP="$GLOBAL_NO_MMAP"
+  EXTRA_LLAMA_ARGS="$GLOBAL_EXTRA_LLAMA_ARGS"
+  MTP_MODELS_DIR="$GLOBAL_MTP_MODELS_DIR"
   CTX_SIZE="$GLOBAL_CTX_SIZE"
   N_GPU_LAYERS="$GLOBAL_N_GPU_LAYERS"
   CACHE_TYPE_K="$GLOBAL_CACHE_TYPE_K"
@@ -555,12 +548,27 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   # SPEC_DRAFT_MODEL, SPEC_DRAFT_N_MIN, SPEC_DRAFT_DEVICE, SPEC_DRAFT_NGL,
   # SPEC_DRAFT_CACHE_TYPE_K, SPEC_DRAFT_CACHE_TYPE_V, SPEC_DRAFT_CPU_MOE,
   # SPEC_DRAFT_N_CPU_MOE, MMPROJ_URL, MMPROJ_OFFLOAD, IMAGE_MIN_TOKENS,
-  # IMAGE_MAX_TOKENS, LORA, and LORA_SCALED.
+  # IMAGE_MAX_TOKENS, LORA, and LORA_SCALED. THREADS, PARALLEL, BATCH_SIZE,
+  # UBATCH_SIZE, JINJA, MLOCK, NO_MMAP, EXTRA_LLAMA_ARGS, and MTP_MODELS_DIR
+  # also apply independently to each model.
   OVERRIDE_FILE="$OVERRIDES_DIR/$NAME.conf"
   if [ -f "$OVERRIDE_FILE" ]; then
     # shellcheck disable=SC1090
     . "$OVERRIDE_FILE"
   fi
+
+  # Explicit type and pooling support arbitrarily named compatible GGUFs.
+  case "$MODEL_TYPE" in
+    chat|completion) MODEL_EXTRA_ARGS="" ;;
+    embedding) MODEL_EXTRA_ARGS="--embeddings"; SPEC_TYPE=""; TTL="${TTL:-$EMBEDDING_TTL}" ;;
+    reranking) MODEL_EXTRA_ARGS="--reranking"; SPEC_TYPE=""; TTL="${TTL:-$EMBEDDING_TTL}" ;;
+    *) echo "Error: MODEL_TYPE for model $NAME must be chat, completion, embedding, or reranking." >&2; exit 1 ;;
+  esac
+  case "$POOLING" in
+    ""|none|mean|cls|last|rank) ;;
+    *) echo "Error: invalid POOLING for model $NAME." >&2; exit 1 ;;
+  esac
+  [ -z "$POOLING" ] || MODEL_EXTRA_ARGS="$MODEL_EXTRA_ARGS --pooling $POOLING"
 
   # EXTRA_ARGS reaches the model's cmd: line as a string llama-swap re-parses
   # with its own shell-like tokenizer, so a value containing quotes/braces
@@ -621,6 +629,48 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   validate_optional_positive_integer "IMAGE_MAX_TOKENS (model $NAME)" "$IMAGE_MAX_TOKENS"
   validate_single_line "LORA (model $NAME)" "$LORA"
   validate_single_line "LORA_SCALED (model $NAME)" "$LORA_SCALED"
+
+  if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
+    echo "Error: THREADS for model $NAME must be a non-negative integer." >&2
+    exit 1
+  fi
+  validate_optional_positive_integer "PARALLEL (model $NAME)" "$PARALLEL"
+  validate_optional_positive_integer "BATCH_SIZE (model $NAME)" "$BATCH_SIZE"
+  validate_optional_positive_integer "UBATCH_SIZE (model $NAME)" "$UBATCH_SIZE"
+  validate_bool "JINJA (model $NAME)" "$JINJA"
+  validate_bool "MLOCK (model $NAME)" "$MLOCK"
+  validate_bool "NO_MMAP (model $NAME)" "$NO_MMAP"
+  validate_single_line "EXTRA_LLAMA_ARGS (model $NAME)" "$EXTRA_LLAMA_ARGS"
+  validate_single_line "MTP_MODELS_DIR (model $NAME)" "$MTP_MODELS_DIR"
+
+  # Build shared flags after overrides, independently for each model.
+  COMMON_EXTRA_ARGS=""
+  [ -z "$PARALLEL" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --parallel $PARALLEL"
+  [ -z "$BATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --batch-size $BATCH_SIZE"
+  [ -z "$UBATCH_SIZE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --ubatch-size $UBATCH_SIZE"
+  [ "$JINJA" = "0" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --jinja"
+  # --mlock/--no-mmap are deprecated upstream in favor of --load-mode; map the
+  # two booleans onto it so generated configs don't trigger llama-server's
+  # deprecation warning. mmap is the llama-server default, so it's omitted.
+  if [ "$MLOCK" = "1" ] && [ "$NO_MMAP" = "1" ]; then
+    LOAD_MODE="mlock"
+  elif [ "$MLOCK" = "1" ]; then
+    LOAD_MODE="mmap+mlock"
+  elif [ "$NO_MMAP" = "1" ]; then
+    LOAD_MODE="none"
+  else
+    LOAD_MODE=""
+  fi
+  [ -z "$LOAD_MODE" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --load-mode $LOAD_MODE"
+  [ -z "$EXTRA_LLAMA_ARGS" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        $EXTRA_LLAMA_ARGS"
+  [ -z "$MTP_MODELS_DIR" ] || COMMON_EXTRA_ARGS="$COMMON_EXTRA_ARGS
+        --models-dir $(shell_quote_token "$MTP_MODELS_DIR")"
 
   MODEL_SPECIFIC_ARGS=""
   [ "$FLASH_ATTN" = "0" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
@@ -782,6 +832,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   cat >> "$CONFIG" <<MODELCFG
 
   "$NAME":
+    # localai-model-type: $MODEL_TYPE
     proxy: http://$LOCALAI_LISTEN_HOST:\${PORT}
     cmd: >
       "$BIN"

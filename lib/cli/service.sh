@@ -79,7 +79,7 @@ check_cmd() {
       if [ -z "$candidate" ] || [ "$candidate" = "null" ]; then
         continue
       fi
-      if ! model_is_embedding_name "$candidate"; then
+      if [ "$(localai_model_type "$candidate")" = chat ]; then
         model="$candidate"
         break
       fi

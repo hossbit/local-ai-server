@@ -261,10 +261,43 @@ model_is_embedding_name() {
   local model="${1,,}"
 
   case "$model" in
+    *rerank*) return 1 ;;
     *qwen3*embedding*|*embedding*|*embed*|*bge*) return 0 ;;
     e5-*|*[-_.]e5[-_.]*|*[-_.]e5) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Generated commands reflect explicit per-model overrides, including models
+# whose filenames give no clue about their purpose. Names are a fallback.
+localai_model_type() {
+  local model="$1" config="${2:-${CONFIG:-}}" flags="" type=""
+  if [ -f "$config" ]; then
+    flags="$(awk -v key="  \"$model\":" '
+      $0 == key {found=1; next}
+      found && /^  "/ {exit}
+      found && /# localai-model-type:/ {printf "TYPE=%s ", $3}
+      found && /^    cmd: >/ {cmd=1; next}
+      found && cmd && /^    [a-zA-Z]+:/ {exit}
+      found && cmd {printf "%s ", $0}
+    ' "$config")"
+  fi
+  for type in chat completion embedding reranking; do
+    if [[ "$flags" == "TYPE=$type "* ]]; then echo "$type"; return; fi
+  done
+  if [[ " $flags " == *" --reranking "* || " $flags " == *" --rerank "* ]]; then
+    echo reranking
+  elif [[ " $flags " == *" --embeddings "* || " $flags " == *" --embedding "* ]]; then
+    echo embedding
+  elif [ -n "$flags" ]; then
+    echo chat
+  elif [[ "${model,,}" == *rerank* ]]; then
+    echo reranking
+  elif model_is_embedding_name "$model"; then
+    echo embedding
+  else
+    echo chat
+  fi
 }
 
 gguf_split_parts() {

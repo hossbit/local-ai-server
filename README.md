@@ -212,6 +212,28 @@ speculative-decoding tuning, LoRA adapters, metrics, and startup preloading.
 
 ## Use the server
 
+Per-model overrides in `conf/models.d/<model-id>.conf` can set `THREADS`,
+`PARALLEL`, `BATCH_SIZE`, `UBATCH_SIZE`, `JINJA`, `MLOCK`, and `NO_MMAP`.
+Each model starts from the global defaults. For embedding models, size
+`UBATCH_SIZE` to fit each input; for example, use `BATCH_SIZE=2048` and
+`UBATCH_SIZE=2048` for inputs of up to 2048 tokens. Run `localai reload`
+after changing settings.
+
+Use `localai suggest MODEL` for hardware advice, or measure the current
+configuration with `localai suggest --benchmark MODEL --runs 3 --tokens 128`.
+The benchmark excludes a warm-up and reports median request time and token
+speed when provided by the engine. Add `--json` to save results for comparison.
+It loads the selected model and can unload another model; it does not change
+settings. Use `--type completion` for base models without a chat template,
+or `--type embedding` / `--type reranking` for those workloads. Add
+`--prompt-file FILE` to benchmark your own text.
+
+LocalAI runs GGUF models supported by your installed llama.cpp version.
+For arbitrarily named models, set `MODEL_TYPE=chat`, `completion`, `embedding`,
+or `reranking` in their override file. `POOLING` can select an embedding pooling
+method when the model requires it. Vision models still need their matching
+projector; architecture and modality support comes from llama.cpp.
+
 Start LocalAI:
 
 ```bash
