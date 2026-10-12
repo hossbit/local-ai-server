@@ -405,6 +405,36 @@ API keys authenticate requests; they don't encrypt them. For LAN/WAN access,
 put a TLS-terminating reverse proxy in front and restrict it with a firewall
 — see [Security](#security).
 
+### Optional reliability and MoE settings
+
+Normal installations need no changes. These settings are off by default and
+can be added to `conf/models.d/<model-id>.conf` for a single model.
+
+If streaming requests occasionally fail with `502` or `proxy error: EOF`, use:
+
+```bash
+DISABLE_KEEP_ALIVES=1
+```
+
+This opens a fresh backend connection for each request and requires llama-swap
+v263 or newer. It does not change the public API or OpenCode configuration.
+
+For a compatible MoE model with experts offloaded to CPU, you can try a GPU
+expert cache:
+
+```bash
+CPU_MOE=1
+MOE_CACHE_MIB=256
+```
+
+The cache uses additional VRAM and requires llama-server support for
+`--moe-cache-mib`. Leave space for the context cache and other GPU allocations.
+Compare `localai suggest --benchmark <model-id>` before and after changing it;
+more cache is not always faster. Dense models do not benefit from this setting.
+Set either option to `0` to disable it. Run `localai reload` after editing
+to apply the configuration. If your runtime is too old,
+LocalAI explains how to update it and preserves the working configuration.
+
 ## Documentation
 
 - [ComAI And LocalAI](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/ComAI-and-LocalAI.md)

@@ -64,6 +64,8 @@ SPEC_DRAFT_SAMPLING="${SPEC_DRAFT_SAMPLING:-$LOCALAI_SPEC_DRAFT_SAMPLING}"
 SPEC_DRAFT_N_MAX="${SPEC_DRAFT_N_MAX:-$LOCALAI_SPEC_DRAFT_N_MAX}"
 CPU_MOE="${CPU_MOE:-$LOCALAI_CPU_MOE}"
 N_CPU_MOE="${N_CPU_MOE:-$LOCALAI_N_CPU_MOE}"
+MOE_CACHE_MIB="${MOE_CACHE_MIB:-${LOCALAI_MOE_CACHE_MIB:-0}}"
+DISABLE_KEEP_ALIVES="${DISABLE_KEEP_ALIVES:-${LOCALAI_DISABLE_KEEP_ALIVES:-0}}"
 SPEC_DRAFT_CACHE_TYPE_K="${SPEC_DRAFT_CACHE_TYPE_K:-$LOCALAI_SPEC_DRAFT_CACHE_TYPE_K}"
 SPEC_DRAFT_CACHE_TYPE_V="${SPEC_DRAFT_CACHE_TYPE_V:-$LOCALAI_SPEC_DRAFT_CACHE_TYPE_V}"
 SPEC_DRAFT_CPU_MOE="${SPEC_DRAFT_CPU_MOE:-$LOCALAI_SPEC_DRAFT_CPU_MOE}"
@@ -259,6 +261,8 @@ validate_single_line MTP_MODELS_DIR "$MTP_MODELS_DIR"
 validate_bool AUTO_TUNE "$AUTO_TUNE"
 validate_bool METRICS_ENABLED "$METRICS_ENABLED"
 validate_bool CPU_MOE "$CPU_MOE"
+validate_bool DISABLE_KEEP_ALIVES "$DISABLE_KEEP_ALIVES"
+validate_optional_nonnegative_integer MOE_CACHE_MIB "$MOE_CACHE_MIB"
 validate_bool REASONING_PRESERVE "$REASONING_PRESERVE"
 validate_spec_type SPEC_TYPE "$SPEC_TYPE"
 validate_spec_draft_sampling SPEC_DRAFT_SAMPLING "$SPEC_DRAFT_SAMPLING"
@@ -337,6 +341,8 @@ GLOBAL_SPLIT_MODE="$SPLIT_MODE"
 GLOBAL_TENSOR_SPLIT="$TENSOR_SPLIT"
 GLOBAL_MAIN_GPU="$MAIN_GPU"
 GLOBAL_DEVICE="$DEVICE"
+GLOBAL_MOE_CACHE_MIB="$MOE_CACHE_MIB"
+GLOBAL_DISABLE_KEEP_ALIVES="$DISABLE_KEEP_ALIVES"
 GLOBAL_CPU_MOE="$CPU_MOE"
 GLOBAL_N_CPU_MOE="$N_CPU_MOE"
 GLOBAL_SPEC_DRAFT_CACHE_TYPE_K="$SPEC_DRAFT_CACHE_TYPE_K"
@@ -468,6 +474,8 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   TENSOR_SPLIT="$GLOBAL_TENSOR_SPLIT"
   MAIN_GPU="$GLOBAL_MAIN_GPU"
   DEVICE="$GLOBAL_DEVICE"
+  MOE_CACHE_MIB="$GLOBAL_MOE_CACHE_MIB"
+  DISABLE_KEEP_ALIVES="$GLOBAL_DISABLE_KEEP_ALIVES"
   CPU_MOE="$GLOBAL_CPU_MOE"
   N_CPU_MOE="$GLOBAL_N_CPU_MOE"
   SPEC_DRAFT_CACHE_TYPE_K="$GLOBAL_SPEC_DRAFT_CACHE_TYPE_K"
@@ -543,7 +551,8 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   # override auto-tune, mmproj detection, or any global default for this one
   # model. Uses the same variable names as the global config above, plus
   # TTL, ALIASES, MMPROJ, SET_TEMPERATURE, SET_TOP_P, EXTRA_ARGS, SPLIT_MODE,
-  # TENSOR_SPLIT, MAIN_GPU, DEVICE, CPU_MOE, N_CPU_MOE, OVERRIDE_TENSOR,
+  # TENSOR_SPLIT, MAIN_GPU, DEVICE, CPU_MOE, N_CPU_MOE, MOE_CACHE_MIB,
+  # DISABLE_KEEP_ALIVES, OVERRIDE_TENSOR,
   # REASONING, REASONING_BUDGET, REASONING_FORMAT, REASONING_PRESERVE,
   # SPEC_DRAFT_MODEL, SPEC_DRAFT_N_MIN, SPEC_DRAFT_DEVICE, SPEC_DRAFT_NGL,
   # SPEC_DRAFT_CACHE_TYPE_K, SPEC_DRAFT_CACHE_TYPE_V, SPEC_DRAFT_CPU_MOE,
@@ -608,6 +617,8 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   validate_tensor_split "TENSOR_SPLIT (model $NAME)" "$TENSOR_SPLIT"
   validate_optional_nonnegative_integer "MAIN_GPU (model $NAME)" "$MAIN_GPU"
   validate_shell_safe "DEVICE (model $NAME)" "$DEVICE"
+  validate_bool "DISABLE_KEEP_ALIVES (model $NAME)" "$DISABLE_KEEP_ALIVES"
+  validate_optional_nonnegative_integer "MOE_CACHE_MIB (model $NAME)" "$MOE_CACHE_MIB"
   validate_bool "CPU_MOE (model $NAME)" "$CPU_MOE"
   validate_optional_nonnegative_integer "N_CPU_MOE (model $NAME)" "$N_CPU_MOE"
   validate_single_line "OVERRIDE_TENSOR (model $NAME)" "$OVERRIDE_TENSOR"
@@ -734,6 +745,14 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
       --cpu-moe-draft"
     fi
   fi
+  if [ "${MOE_CACHE_MIB:-0}" != "0" ] && [ -n "$MOE_CACHE_MIB" ]; then
+    if ! "$BIN" --help 2>&1 | grep -- '--moe-cache-mib' >/dev/null; then
+      echo "Error: model $NAME requests MOE_CACHE_MIB but this llama-server does not support it. Run localai update or set MOE_CACHE_MIB=0." >&2
+      exit 1
+    fi
+    MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS
+      --moe-cache-mib $MOE_CACHE_MIB"
+  fi
   # MoE CPU offload: N_CPU_MOE (exact layer count) wins over CPU_MOE (every
   # expert layer) when both are set, same precedence as llama-server itself.
   if [ -n "$N_CPU_MOE" ]; then
@@ -796,6 +815,15 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   [ -z "$EXTRA_ARGS_RENDERED" ] || MODEL_SPECIFIC_ARGS="$MODEL_SPECIFIC_ARGS$EXTRA_ARGS_RENDERED"
 
   EXTRA_MODEL_YAML=""
+  if [ "$DISABLE_KEEP_ALIVES" = "1" ]; then
+    SWAP_VERSION="$("$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-swap" --version 2>&1 || true)"
+    if ! [[ "$SWAP_VERSION" =~ version:[[:space:]]v?([0-9]+) ]] || ((10#${BASH_REMATCH[1]} < 263)); then
+      echo "Error: model $NAME requests DISABLE_KEEP_ALIVES but llama-swap v263 or newer is required. Run localai update or set DISABLE_KEEP_ALIVES=0." >&2
+      exit 1
+    fi
+    EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
+    disableKeepAlives: true"
+  fi
   [ -z "$TTL" ] || EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
     ttl: $TTL"
 
