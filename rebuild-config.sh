@@ -78,6 +78,26 @@ AUTO_TUNE="${AUTO_TUNE:-$LOCALAI_AUTO_TUNE}"
 METRICS_ENABLED="${METRICS_ENABLED:-$LOCALAI_METRICS_ENABLED}"
 PRELOAD_MODELS="${PRELOAD_MODELS:-$LOCALAI_PRELOAD_MODELS}"
 EMBEDDING_TTL="${EMBEDDING_TTL:-$LOCALAI_EMBEDDING_TTL}"
+MAX_REQUEST_BODY_MB="${MAX_REQUEST_BODY_MB:-${LOCALAI_MAX_REQUEST_BODY_MB:-}}"
+
+require_swap_version() {
+  local setting="$1" minimum="$2" version
+  version="$("$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-swap" --version 2>&1 || true)"
+  if ! [[ "$version" =~ version:[[:space:]]v?([0-9]+) ]] || ((10#${BASH_REMATCH[1]} < minimum)); then
+    echo "Error: $setting requires llama-swap v$minimum or newer. Run localai update or clear $setting in your configuration." >&2
+    exit 1
+  fi
+}
+
+# Blank keeps the upstream default and remains compatible with older swaps.
+# Bound the value before arithmetic/YAML conversion to prevent integer overflow.
+if [ -n "$MAX_REQUEST_BODY_MB" ]; then
+  if ! [[ "$MAX_REQUEST_BODY_MB" =~ ^[1-9][0-9]{0,9}$ ]] || ((MAX_REQUEST_BODY_MB > 2147483647)); then
+    echo "Error: MAX_REQUEST_BODY_MB must be a whole number from 1 to 2147483647, without leading zeros, or blank for the default." >&2
+    exit 1
+  fi
+  require_swap_version MAX_REQUEST_BODY_MB 266
+fi
 
 validate_spec_draft_sampling() {
   case "$2" in
@@ -369,6 +389,9 @@ healthCheckTimeout: $LOCALAI_HEALTH_CHECK_TIMEOUT
 globalTTL: $LOCALAI_GLOBAL_TTL
 CFG
 chmod 600 "$CONFIG" 2>/dev/null || true
+if [ -n "$MAX_REQUEST_BODY_MB" ]; then
+  printf 'maxRequestBodyMB: %s\n' "$MAX_REQUEST_BODY_MB" >> "$CONFIG"
+fi
 
 # Active keys are rendered into their own file (KEYS_FILE) and merged into
 # the running config by llama-swap's --config-dir, rather than embedded in
@@ -816,11 +839,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
 
   EXTRA_MODEL_YAML=""
   if [ "$DISABLE_KEEP_ALIVES" = "1" ]; then
-    SWAP_VERSION="$("$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-swap" --version 2>&1 || true)"
-    if ! [[ "$SWAP_VERSION" =~ version:[[:space:]]v?([0-9]+) ]] || ((10#${BASH_REMATCH[1]} < 263)); then
-      echo "Error: model $NAME requests DISABLE_KEEP_ALIVES but llama-swap v263 or newer is required. Run localai update or set DISABLE_KEEP_ALIVES=0." >&2
-      exit 1
-    fi
+    require_swap_version "DISABLE_KEEP_ALIVES (model $NAME)" 263
     EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
     disableKeepAlives: true"
   fi

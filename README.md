@@ -435,6 +435,24 @@ Set either option to `0` to disable it. Run `localai reload` after editing
 to apply the configuration. If your runtime is too old,
 LocalAI explains how to update it and preserves the working configuration.
 
+### Request size limit
+
+Normal installations need no changes. If an image, audio, or other large
+request receives `413 Request Entity Too Large`, you can increase the limit
+with llama-swap v266 or newer. Edit `~/ai/conf/localai.conf` (or the `conf`
+folder in your custom install location):
+
+```bash
+LOCALAI_MAX_REQUEST_BODY_MB=500
+```
+
+Then run `localai reload`. This limits the complete request body, including
+encoded attachments, for all models; it does not enable new model capabilities.
+Larger requests can use more system memory. Set the value to an empty string
+(`LOCALAI_MAX_REQUEST_BODY_MB=""`) to restore the upstream default, currently
+250 MB. Older llama-swap versions work normally while this setting is blank;
+LocalAI explains how to update if you request an unsupported setting.
+
 ## Documentation
 
 - [ComAI And LocalAI](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/ComAI-and-LocalAI.md)
