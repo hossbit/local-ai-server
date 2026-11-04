@@ -26,9 +26,13 @@ the configured install directory, which defaults to `~/ai/models`.
 <div align="center">
 
 <a href="https://github.com/hossbit/local-ai-server/releases/latest"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-release.svg" alt="Latest Release" height="68"></a>
-<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-download.svg" alt="Downloads" height="68"></a>
+<a href="https://github.com/hossbit/local-ai-server/pulse"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-download.svg" alt="Downloads (recorded repository clones)" height="68"></a>
 <a href="https://github.com/hossbit/local-ai-server/stargazers"><img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/localai-badge-stars.svg" alt="GitHub Stars" height="68"></a>
 </div>
+
+The download badge counts recorded repository clones, not unique users or release
+asset downloads. It preserves the historical total and refreshes daily traffic
+counts through an hourly scheduled workflow, without counting overlapping days twice.
 
 ## ❤️ Support
 
