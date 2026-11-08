@@ -487,14 +487,3 @@ Special thanks to the maintainers and contributors of these projects.
 
 LocalAI focuses on simplifying installation, configuration, model management,
 and service deployment for local LLM environments.
-
-## Support
-
-<div align="center">
-  <a href="https://buymeacoffee.com/mirhh">
-    <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.webp" alt="Buy me a coffee" width="300">
-  </a>
-</div>
-<div align="center">
-  <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/give-it-a-star.webp" alt="If this repo helped you, give it a star" width="100%">
-</div>
