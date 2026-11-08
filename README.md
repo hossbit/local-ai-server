@@ -484,6 +484,18 @@ and service deployment for local LLM environments.
 
 ## Support
 
+These installers are built and tested on a home lab. One-time donations go
+toward the hardware, storage, and power it takes to keep testing new models and
+releases.
+
+<div align="center">
+  <a href="https://donate.stripe.com/bJebJ0fzHeNc5F32fhaMU00">
+    <img src="https://hossbit.github.io/assets/donation-progress.svg" alt="Donation goal progress for the home lab upgrade" width="520">
+  </a>
+  <br>
+  <strong><a href="https://donate.stripe.com/bJebJ0fzHeNc5F32fhaMU00">Donate via Stripe</a></strong>
+</div>
+
 <div align="center">
   <a href="https://buymeacoffee.com/mirhh">
     <img src="https://raw.githubusercontent.com/hossbit/mirassets/main/images/bmc-button.webp" alt="Buy me a coffee" width="300">
