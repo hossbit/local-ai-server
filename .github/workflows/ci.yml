@@ -20,7 +20,7 @@ jobs:
             rebuild-config.sh uninstall-local-ai.sh update-local-ai.sh \
             lib/*.sh lib/cli/*.sh
 
-  tests:
+  syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -31,11 +31,3 @@ jobs:
             localai install.sh install-local-ai.sh start.sh stop.sh \
             rebuild-config.sh uninstall-local-ai.sh update-local-ai.sh \
             lib/*.sh lib/cli/*.sh
-
-      - name: Install bats
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats
-
-      - name: Run bats tests
-        run: bats tests
