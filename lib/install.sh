@@ -534,7 +534,7 @@ config_rhs_is_self_default() {
   local key="$1"
   local rhs="$2"
 
-  [[ "$rhs" =~ ^[[:space:]]*[\"\']?\$\{${key}:-[^}]*\}[\"\']?([[:space:]]*#.*)?[[:space:]]*$ ]]
+  [[ "$rhs" =~ ^[[:space:]]*[\"\']?\$\{${key}:-.*\}[\"\']?([[:space:]]*#.*)?[[:space:]]*$ ]]
 }
 
 # config_all_keys: prints every variable assigned by FILE, once each.

@@ -592,3 +592,23 @@ JSON
   [ "$status" -eq 0 ]
   [ ! -d "$CONF_DIR/ui" ]
 }
+
+@test "append_runtime_tuning keeps explicit settings and drops shipped default templates" {
+  CONF_DIR="$BATS_TEST_TMPDIR/conf"
+  mkdir -p "$CONF_DIR"
+  printf 'LOCALAI_VERSION="${LOCALAI_VERSION:-1.7.1}"\n' > "$CONF_DIR/localai.conf"
+  cat > "$BATS_TEST_TMPDIR/previous.conf" <<'CONF'
+LLAMA_CPP_RELEASE_API="${LLAMA_CPP_RELEASE_API:-https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${LLAMA_CPP_VERSION}}"
+LLAMA_CPP_CHANNEL="${LLAMA_CPP_CHANNEL:-bleeding-edge}"
+LOCALAI_CTX_SIZE=8192  # my context
+CONF
+
+  run append_runtime_tuning "$BATS_TEST_TMPDIR/previous.conf" test
+  [ "$status" -eq 0 ]
+  run grep -c 'LLAMA_CPP_RELEASE_API' "$CONF_DIR/localai.conf"
+  [ "$output" = "0" ]
+  run grep -c '^LLAMA_CPP_CHANNEL=' "$CONF_DIR/localai.conf"
+  [ "$output" = "0" ]
+  run bash -c ". '$CONF_DIR/localai.conf'; echo \"\$LOCALAI_CTX_SIZE\""
+  [ "$output" = "8192" ]
+}
