@@ -3,31 +3,10 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
-source_localai_common() {
-  local candidate
-
-  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
-    if [ -f "$candidate" ]; then
-      # shellcheck source=/dev/null
-      . "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Error: missing LocalAI library: common.sh" >&2
-  exit 1
-}
-source_localai_common
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 
 AI_DIR=""
 BIN_DIR=""
@@ -71,10 +50,6 @@ warn() {
 
 has_systemctl_user() {
   command -v systemctl >/dev/null 2>&1
-}
-
-has_user_service() {
-  has_systemctl_user && systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
 }
 
 confirm() {

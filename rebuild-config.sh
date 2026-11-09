@@ -3,31 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
-source_localai_common() {
-  local candidate
-
-  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
-    if [ -f "$candidate" ]; then
-      # shellcheck source=/dev/null
-      . "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Error: missing LocalAI library: common.sh" >&2
-  exit 1
-}
-source_localai_common
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 
 AI_DIR="$(resolve_ai_dir)"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
@@ -82,8 +61,8 @@ MAX_REQUEST_BODY_MB="${MAX_REQUEST_BODY_MB:-${LOCALAI_MAX_REQUEST_BODY_MB:-}}"
 
 require_swap_version() {
   local setting="$1" minimum="$2" version
-  version="$("$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-swap" --version 2>&1 || true)"
-  if ! [[ "$version" =~ version:[[:space:]]v?([0-9]+) ]] || ((10#${BASH_REMATCH[1]} < minimum)); then
+  version="$(llama_swap_version "$AI_DIR/$LOCALAI_BIN_SUBDIR/llama-swap")"
+  if ! [[ "$version" =~ ^[0-9]+$ ]] || ((10#$version < minimum)); then
     echo "Error: $setting requires llama-swap v$minimum or newer. Run localai update or clear $setting in your configuration." >&2
     exit 1
   fi
@@ -139,6 +118,55 @@ validate_bool() {
       exit 1
       ;;
   esac
+}
+
+# validate_optional_number_range NAME VALUE MIN MAX
+validate_optional_number_range() {
+  local name="$1"
+  local value="$2"
+  local min="$3"
+  local max="$4"
+
+  [ -z "$value" ] && return 0
+  if ! [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] ||
+    ! awk -v value="$value" -v min="$min" -v max="$max" \
+      'BEGIN { exit !(value + 0 >= min + 0 && value + 0 <= max + 0) }'; then
+    echo "Error: $name must be a number from $min to $max when set." >&2
+    exit 1
+  fi
+}
+
+validate_listen_host() {
+  local value="$1"
+
+  if [ -z "$value" ] || ! [[ "$value" =~ ^[][A-Za-z0-9._:-]+$ ]]; then
+    echo "Error: LOCALAI_LISTEN_HOST must be an address or hostname without spaces, quotes, or path characters." >&2
+    exit 1
+  fi
+}
+
+validate_preload_models() {
+  local value="$1"
+  local id
+  local -a ids=()
+
+  [ -z "$value" ] && return 0
+  case "$value" in
+    *$'\n'*|*$'\r'*)
+      echo "Error: LOCALAI_PRELOAD_MODELS must be a single line." >&2
+      exit 1
+      ;;
+  esac
+  IFS=', ' read -r -a ids <<<"$value"
+  for id in "${ids[@]}"; do
+    [ -n "$id" ] || continue
+    case "$id" in
+      *\"*|*"'"*|*'`'*|*\\*|*$'\n'*|*$'\r'*)
+        echo "Error: LOCALAI_PRELOAD_MODELS contains an unsupported model id: $id" >&2
+        exit 1
+        ;;
+    esac
+  done
 }
 
 validate_spec_type() {
@@ -293,6 +321,11 @@ validate_reasoning REASONING "$REASONING"
 validate_reasoning_format REASONING_FORMAT "$REASONING_FORMAT"
 validate_reasoning_budget REASONING_BUDGET "$REASONING_BUDGET"
 
+validate_optional_nonnegative_integer LOCALAI_HEALTH_CHECK_TIMEOUT "$LOCALAI_HEALTH_CHECK_TIMEOUT"
+validate_optional_nonnegative_integer LOCALAI_GLOBAL_TTL "$LOCALAI_GLOBAL_TTL"
+validate_listen_host "$LOCALAI_LISTEN_HOST"
+validate_preload_models "$PRELOAD_MODELS"
+
 case "$EXTRA_LLAMA_ARGS" in
   *$'\n'*|*$'\r'*)
     echo "Error: EXTRA_LLAMA_ARGS must be a single line." >&2
@@ -381,7 +414,9 @@ CONFIG_DEST="$CONFIG"
 KEYS_DEST="$KEYS_FILE"
 CONFIG="$(mktemp "${CONFIG_DEST}.XXXXXX")"
 KEYS_FILE=""
-trap 'rm -f -- "$CONFIG" "${KEYS_FILE:-}"' EXIT
+CONFIG_BACKUP=""
+KEYS_BACKUP=""
+trap 'rm -f -- "$CONFIG" "${KEYS_FILE:-}" "${CONFIG_BACKUP:-}" "${KEYS_BACKUP:-}"' EXIT
 KEYS_FILE="$(mktemp "${KEYS_DEST}.XXXXXX")"
 
 cat > "$CONFIG" <<CFG
@@ -534,12 +569,14 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
 
   if [ "$AUTO_TUNE" = "1" ] && [ "$BACKEND" != "cpu" ]; then
     MODEL_BYTES="$(localai_model_bytes "$MODEL")"
-    # AUTO_CTX is intentionally unused here: ctx-size is a user choice about
-    # how much context to keep, not a hardware-fit value like the others, so
-    # auto-tune leaves the configured CTX_SIZE alone (models.d can still
-    # override it per model).
-    IFS=$'\t' read -r _AUTO_CTX AUTO_NGL AUTO_FLASH AUTO_CACHE_K AUTO_CACHE_V \
+    # Auto-tune now applies the VRAM-aware context recommendation too, so the
+    # value `localai suggest` prints is the value that actually reaches
+    # llama-server. models.d can still override it per model.
+    IFS=$'\t' read -r AUTO_CTX AUTO_NGL AUTO_FLASH AUTO_CACHE_K AUTO_CACHE_V \
       < <(compute_model_runtime_defaults "$MODEL_BYTES" "$RAM_BYTES" "$VRAM_BYTES" "$BACKEND" "$NGL_AUTO_SUPPORTED")
+    if [[ "$AUTO_CTX" =~ ^[0-9]+$ ]] && ((AUTO_CTX > 0)); then
+      CTX_SIZE="$AUTO_CTX"
+    fi
     [ "$AUTO_NGL" = "-" ] || N_GPU_LAYERS="$AUTO_NGL"
     FLASH_ATTN="$AUTO_FLASH"
     CACHE_TYPE_K="$AUTO_CACHE_K"
@@ -663,6 +700,8 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   validate_optional_positive_integer "IMAGE_MAX_TOKENS (model $NAME)" "$IMAGE_MAX_TOKENS"
   validate_single_line "LORA (model $NAME)" "$LORA"
   validate_single_line "LORA_SCALED (model $NAME)" "$LORA_SCALED"
+  validate_optional_number_range "SET_TEMPERATURE (model $NAME)" "$SET_TEMPERATURE" 0 2
+  validate_optional_number_range "SET_TOP_P (model $NAME)" "$SET_TOP_P" 0 1
 
   if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
     echo "Error: THREADS for model $NAME must be a non-negative integer." >&2
@@ -901,12 +940,61 @@ MODELCFG
   printf '\n' >> "$CONFIG"
 done <<< "$MODEL_ENTRIES"
 
-if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
-  mv -f -- "$KEYS_FILE" "$KEYS_DEST"
-else
-  rm -f -- "$KEYS_DEST"
+# Commit the two output files as one unit. Each rename is atomic, but a
+# failure between them must not leave keys.yaml and config.yaml describing
+# different key sets; keep backup copies and roll config.yaml back if the
+# keys file cannot be committed.
+CONFIG_BACKUP="$(mktemp "${CONFIG_DEST}.previous.XXXXXX")" || exit 1
+HAVE_CONFIG_PREV=0
+if [ -f "$CONFIG_DEST" ]; then
+  if ! cp -p -- "$CONFIG_DEST" "$CONFIG_BACKUP"; then
+    echo "Error: could not back up $CONFIG_DEST; it was left unchanged." >&2
+    exit 1
+  fi
+  HAVE_CONFIG_PREV=1
 fi
-mv -f -- "$CONFIG" "$CONFIG_DEST"
+
+KEYS_BACKUP="$(mktemp "${KEYS_DEST}.previous.XXXXXX")" || exit 1
+HAVE_KEYS_PREV=0
+if [ -f "$KEYS_DEST" ]; then
+  if ! cp -p -- "$KEYS_DEST" "$KEYS_BACKUP"; then
+    echo "Error: could not back up $KEYS_DEST; $CONFIG_DEST was left unchanged." >&2
+    exit 1
+  fi
+  HAVE_KEYS_PREV=1
+fi
+
+if ! mv -f -- "$CONFIG" "$CONFIG_DEST"; then
+  echo "Error: failed to install new configuration; $CONFIG_DEST was left unchanged." >&2
+  exit 1
+fi
+
+if [ "$ACTIVE_API_KEY_COUNT" -gt 0 ]; then
+  if ! mv -f -- "$KEYS_FILE" "$KEYS_DEST"; then
+    if [ "$HAVE_CONFIG_PREV" -eq 1 ]; then
+      mv -f -- "$CONFIG_BACKUP" "$CONFIG_DEST" || true
+    else
+      rm -f -- "$CONFIG_DEST"
+    fi
+    if [ "$HAVE_KEYS_PREV" -eq 1 ] && [ ! -f "$KEYS_DEST" ]; then
+      mv -f -- "$KEYS_BACKUP" "$KEYS_DEST" || true
+    fi
+    echo "Error: failed to install $KEYS_DEST; restored previous $CONFIG_DEST." >&2
+    exit 1
+  fi
+else
+  if ! rm -f -- "$KEYS_DEST"; then
+    if [ "$HAVE_CONFIG_PREV" -eq 1 ]; then
+      mv -f -- "$CONFIG_BACKUP" "$CONFIG_DEST" || true
+    else
+      rm -f -- "$CONFIG_DEST"
+    fi
+    echo "Error: failed to remove $KEYS_DEST; restored previous $CONFIG_DEST." >&2
+    exit 1
+  fi
+fi
+
+rm -f -- "$CONFIG_BACKUP" "$KEYS_BACKUP"
 CONFIG="$CONFIG_DEST"
 # Do not delete the committed destinations when the EXIT trap runs.
 trap - EXIT

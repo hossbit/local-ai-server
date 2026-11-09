@@ -137,12 +137,14 @@ vulkan_is_usable() {
     vulkaninfo --summary >/dev/null 2>&1 && return 0
   fi
 
-  ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1' || return 1
+  # grep without -q consumes all of ldconfig's output, so ldconfig cannot
+  # receive SIGPIPE and fail the pipeline under `set -o pipefail`.
+  ldconfig -p 2>/dev/null | grep 'libvulkan\.so\.1' >/dev/null || return 1
 
   local icd_dir
   for icd_dir in /usr/share/vulkan/icd.d /etc/vulkan/icd.d; do
     [ -d "$icd_dir" ] || continue
-    find "$icd_dir" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null | grep -q . && return 0
+    find "$icd_dir" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null | grep . >/dev/null && return 0
   done
   return 1
 }

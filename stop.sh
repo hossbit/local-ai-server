@@ -3,31 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
-source_localai_common() {
-  local candidate
-
-  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
-    if [ -f "$candidate" ]; then
-      # shellcheck source=/dev/null
-      . "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Error: missing LocalAI library: common.sh" >&2
-  exit 1
-}
-source_localai_common
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 
 AI_DIR="$(resolve_ai_dir)"
 CONF_DIR="$AI_DIR/$LOCALAI_CONF_SUBDIR"
@@ -83,13 +62,16 @@ if pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
 
   kill "$PID"
 
-  for _ in {1..20}; do
+  STOP_TIMEOUT="${LOCALAI_STOP_TIMEOUT:-60}"
+  [[ "$STOP_TIMEOUT" =~ ^[0-9]+$ ]] || STOP_TIMEOUT=60
+  STOP_ITERATIONS=$((STOP_TIMEOUT * 4))
+  for ((i = 0; i < STOP_ITERATIONS; i++)); do
     kill -0 "$PID" 2>/dev/null || break
     sleep 0.25
   done
 
   if kill -0 "$PID" 2>/dev/null; then
-    echo "Error: llama-swap (PID $PID) did not stop cleanly." >&2
+    echo "Error: llama-swap (PID $PID) did not stop within ${STOP_TIMEOUT}s." >&2
     exit 1
   fi
 fi

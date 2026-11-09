@@ -193,6 +193,38 @@ backend_dependency_hint() {
   esac
 }
 
+# llama_server_runs: true when the active wrapper can execute --version.
+# Kept separate from verify_llama_server so callers that want to fall back
+# (e.g. the installer trying the CPU archive) can probe without printing the
+# final backend error first.
+llama_server_runs() {
+  [ -x "$BIN_DIR/llama-server" ] && "$BIN_DIR/llama-server" --version >/dev/null 2>&1
+}
+
+# verify_llama_server: shared by the installer and updater. Prints one
+# actionable error and returns non-zero when the active backend's binary
+# cannot run. Returning (rather than exiting) lets each caller decide whether
+# to retry a fallback backend.
+verify_llama_server() {
+  llama_server_runs && return 0
+
+  local hint
+  hint="$(backend_dependency_hint "$LLAMA_CPP_BACKEND" 2>/dev/null)" ||
+    hint="Fix:
+  Install the missing runtime libraries for your selected backend and rerun."
+
+  cat >&2 <<EOF
+Error: installed llama.cpp backend '$LLAMA_CPP_BACKEND' did not run on this system.
+
+$hint
+
+Or, try another backend:
+  LLAMA_CPP_BACKEND=cpu $0
+  LLAMA_CPP_BACKEND=vulkan $0
+EOF
+  return 1
+}
+
 select_llama_cpp_asset_regex() {
   if [ "${1:-}" = "--detect-installed" ] && [ -z "$LLAMA_CPP_BACKEND" ]; then
     if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
@@ -388,6 +420,26 @@ activate_llama_cpp_backend() {
   echo "$LLAMA_CPP_BACKEND" > "$CONF_DIR/$LOCALAI_BACKEND_FILE"
 }
 
+_llama_cpp_install_rollback() {
+  local staging="${_LLAMA_CPP_INSTALL_STAGING:-}"
+  local old="${_LLAMA_CPP_INSTALL_OLD:-}"
+  local dest="${_LLAMA_CPP_INSTALL_DEST:-}"
+
+  [ -z "$staging" ] || rm -rf -- "$staging"
+  if [ -n "$old" ] && [ -e "$old" ] && [ -n "$dest" ]; then
+    rm -rf -- "$dest"
+    mv -- "$old" "$dest" 2>/dev/null || true
+  fi
+  _LLAMA_CPP_INSTALL_STAGING=""
+  _LLAMA_CPP_INSTALL_OLD=""
+}
+
+_llama_cpp_install_restore_traps() {
+  trap - INT TERM
+  [ -z "${_LLAMA_CPP_INSTALL_PREV_INT:-}" ] || eval "$_LLAMA_CPP_INSTALL_PREV_INT"
+  [ -z "${_LLAMA_CPP_INSTALL_PREV_TERM:-}" ] || eval "$_LLAMA_CPP_INSTALL_PREV_TERM"
+}
+
 install_llama_cpp_release_dir() {
   local release_dir="$1"
   local tmp_dir="$2"
@@ -399,8 +451,44 @@ install_llama_cpp_release_dir() {
 
   backend_dir="$BIN_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND"
   mkdir -p "$BIN_DIR/llama.cpp.d"
-  rm -rf "$backend_dir"
-  mv "$llama_release_dir" "$backend_dir"
+
+  # Stage the complete new tree beside the destination, then swap it in with
+  # two renames. The long copy/move never touches a working backend, and a
+  # failed or interrupted swap restores the previous slot instead of leaving
+  # it empty (the old code did `rm -rf` before `mv`).
+  _LLAMA_CPP_INSTALL_DEST="$backend_dir"
+  _LLAMA_CPP_INSTALL_STAGING="$BIN_DIR/llama.cpp.d/.${LLAMA_CPP_BACKEND}.new.$$"
+  _LLAMA_CPP_INSTALL_OLD="$BIN_DIR/llama.cpp.d/.${LLAMA_CPP_BACKEND}.old.$$"
+  _LLAMA_CPP_INSTALL_PREV_INT="$(trap -p INT)"
+  _LLAMA_CPP_INSTALL_PREV_TERM="$(trap -p TERM)"
+  trap '_llama_cpp_install_rollback; exit 130' INT
+  trap '_llama_cpp_install_rollback; exit 143' TERM
+
+  rm -rf -- "$_LLAMA_CPP_INSTALL_STAGING" "$_LLAMA_CPP_INSTALL_OLD"
+  if ! mv -- "$llama_release_dir" "$_LLAMA_CPP_INSTALL_STAGING"; then
+    _llama_cpp_install_rollback
+    _llama_cpp_install_restore_traps
+    fail "failed to stage llama.cpp backend '$LLAMA_CPP_BACKEND'"
+  fi
+
+  if [ -e "$backend_dir" ] && ! mv -- "$backend_dir" "$_LLAMA_CPP_INSTALL_OLD"; then
+    _llama_cpp_install_rollback
+    _llama_cpp_install_restore_traps
+    fail "failed to replace llama.cpp backend '$LLAMA_CPP_BACKEND'"
+  fi
+
+  if ! mv -- "$_LLAMA_CPP_INSTALL_STAGING" "$backend_dir"; then
+    _llama_cpp_install_rollback
+    _llama_cpp_install_restore_traps
+    fail "failed to activate llama.cpp backend '$LLAMA_CPP_BACKEND'"
+  fi
+
+  _LLAMA_CPP_INSTALL_STAGING=""
+  rm -rf -- "$_LLAMA_CPP_INSTALL_OLD"
+  _LLAMA_CPP_INSTALL_OLD=""
+  _LLAMA_CPP_INSTALL_DEST=""
+  _llama_cpp_install_restore_traps
+
   activate_llama_cpp_backend
 
   cat > "$tmp_dir/llama-server" <<EOF
@@ -436,53 +524,156 @@ localai_conf_default_version() {
   ' "$file"
 }
 
-config_assignment_value() {
+# config_rhs_is_self_default: true when KEY's right-hand side is the shipped
+# self-referencing default template, e.g. KEY="${KEY:-default}". Those lines
+# only express a default, not a user choice, so copying them forward would
+# freeze an old release's default forever. Explicit assignments (including
+# ones edited to a literal value, with or without an inline comment) are what
+# need preserving.
+config_rhs_is_self_default() {
   local key="$1"
-  local file="$2"
+  local rhs="$2"
 
-  [ -f "$file" ] || return 1
-  awk -F= -v key="$key" '
-    $1 == key {
-      value = substr($0, index($0, "=") + 1)
-      # Preserve literal # characters inside values such as
-      # LOCALAI_EXTRA_LLAMA_ARGS; installed configs write preserved values quoted.
-      gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", value)
-      print value
-    }
-  ' "$file" | tail -n 1
+  [[ "$rhs" =~ ^[[:space:]]*[\"\']?\$\{${key}:-[^}]*\}[\"\']?([[:space:]]*#.*)?[[:space:]]*$ ]]
 }
 
+# config_all_keys: prints every variable assigned by FILE, once each.
+config_all_keys() {
+  local file="$1"
+  local line key
+  local -A seen=()
+
+  [ -f "$file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      [ -n "${seen[$key]:-}" ] && continue
+      seen["$key"]=1
+      printf '%s\n' "$key"
+    fi
+  done < "$file"
+}
+
+# config_explicit_keys: prints, once each in file order, every variable the
+# previous config assigned explicitly rather than through the shipped
+# KEY="${KEY:-...}" default template.
+config_explicit_keys() {
+  local file="$1"
+  local line key rhs
+  local -A seen=()
+
+  [ -f "$file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      rhs="${BASH_REMATCH[2]}"
+      config_rhs_is_self_default "$key" "$rhs" && continue
+      [ -n "${seen[$key]:-}" ] && continue
+      seen["$key"]=1
+      printf '%s\n' "$key"
+    fi
+  done < "$file"
+}
+
+# config_eval_keys: sources FILE in a subshell with the requested keys unset
+# first, then prints each as KEY=<shell-quoted value>. Sourcing (rather than
+# textually slicing) is what makes inline comments, quotes, and expansions
+# behave exactly like they do at runtime. Values are emitted with printf %q so
+# they can be written back into localai.conf safely no matter what they contain.
+config_eval_keys() {
+  local file="$1"
+  local keys="$2"
+  local key
+
+  (
+    set +u
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      unset "$key" 2>/dev/null || true
+    done <<<"$keys"
+
+    # shellcheck source=/dev/null
+    # shellcheck disable=SC1090
+    if ! . "$file" >/dev/null 2>&1; then
+      exit 1
+    fi
+
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      if [ "${!key+x}" = x ]; then
+        printf '%s=%q\n' "$key" "${!key}"
+      fi
+    done <<<"$keys"
+  )
+}
+
+# append_runtime_tuning: carries settings the user explicitly changed in the
+# previous localai.conf into the freshly installed one. It does not copy the
+# shipped KEY="${KEY:-...}" template lines, so future default changes still
+# reach upgraded installs.
 append_runtime_tuning() {
   local installed_conf="$CONF_DIR/localai.conf"
   local source_conf="$1"
   local marker="$2"
-  local key value had_ctx=0 had_gpu=0 had_flash=0 had_parallel=0
+  local all_keys keys values line key value
+  local -a preserved=()
+  local -A old_values=()
 
-  {
+  [ -f "$source_conf" ] || return 0
+  all_keys="$(config_all_keys "$source_conf")"
+  keys="$(config_explicit_keys "$source_conf")"
+  [ -n "$keys" ] || return 0
+
+  values="$(config_eval_keys "$source_conf" "$all_keys")" || {
+    echo "Warning: could not read previous settings from $source_conf; they were not preserved." >&2
+    return 0
+  }
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    old_values["$key"]="$value"
+  done <<<"$values"
+
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    [ -n "${old_values[$key]+x}" ] || continue
+    preserved+=("$key=${old_values[$key]}")
+  done <<<"$keys"
+
+  [ "${#preserved[@]}" -gt 0 ] || return 0
+
+  # Prepend (rather than append) so defaults that reference a preserved value
+  # -- e.g. LLAMA_CPP_RELEASE_API using LLAMA_CPP_VERSION -- see the user's
+  # value on the same source pass instead of the release default.
+  local tmp_conf mode
+  tmp_conf="$(mktemp "${installed_conf}.XXXXXX")" || return 1
+  mode="$(stat -c '%a' "$installed_conf" 2>/dev/null || printf '644')"
+  if ! {
+    printf '# Settings preserved by %s.\n' "$marker"
+    printf '%s\n' "${preserved[@]}"
     echo
-    printf '# Runtime tuning preserved by %s.\n' "$marker"
-    for key in LOCALAI_CTX_SIZE LOCALAI_N_GPU_LAYERS LOCALAI_THREADS LOCALAI_CACHE_TYPE_K LOCALAI_CACHE_TYPE_V LOCALAI_PARALLEL LOCALAI_BATCH_SIZE LOCALAI_UBATCH_SIZE LOCALAI_FLASH_ATTN LOCALAI_JINJA LOCALAI_MLOCK LOCALAI_NO_MMAP LOCALAI_EXTRA_LLAMA_ARGS LOCALAI_MTP_MODELS_DIR LOCALAI_HEALTH_CHECK_TIMEOUT LOCALAI_GLOBAL_TTL LOCALAI_AUTO_TUNE LOCALAI_SPEC_TYPE LOCALAI_SPEC_DRAFT_SAMPLING LOCALAI_SPEC_DRAFT_N_MAX LOCALAI_MODELS_OVERRIDE_SUBDIR LOCALAI_EMBEDDING_TTL LOCALAI_PRELOAD_MODELS LOCALAI_METRICS_ENABLED; do
-      value="$(config_assignment_value "$key" "$source_conf" || true)"
-      if [ -n "$value" ]; then
-        printf '%s="%s"\n' "$key" "$value"
-        [ "$key" = "LOCALAI_CTX_SIZE" ] && had_ctx=1
-        [ "$key" = "LOCALAI_N_GPU_LAYERS" ] && had_gpu=1
-        [ "$key" = "LOCALAI_FLASH_ATTN" ] && had_flash=1
-        [ "$key" = "LOCALAI_PARALLEL" ] && had_parallel=1
-      fi
-    done
-    if [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
-      [ "$had_ctx" -eq 1 ] || echo 'LOCALAI_CTX_SIZE="4096"'
-      [ "$had_gpu" -eq 1 ] || echo 'LOCALAI_N_GPU_LAYERS="0"'
-      [ "$had_flash" -eq 1 ] || echo 'LOCALAI_FLASH_ATTN="0"'
-      [ "$had_parallel" -eq 1 ] || echo 'LOCALAI_PARALLEL="1"'
-    fi
-  } >> "$installed_conf"
+    cat "$installed_conf"
+  } > "$tmp_conf"; then
+    rm -f -- "$tmp_conf"
+    return 1
+  fi
+  chmod "$mode" "$tmp_conf" 2>/dev/null || true
+  mv -f -- "$tmp_conf" "$installed_conf" || {
+    rm -f -- "$tmp_conf"
+    return 1
+  }
 }
 
 write_systemd_user_service() {
   local service_file="$1"
   local bin_dir="$2"
+  local pid_file="${3:-}"
 
   cat > "$service_file" <<EOF
 [Unit]
@@ -491,10 +682,17 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=forking
 ExecStart=$bin_dir/start.sh
 ExecStop=$bin_dir/stop.sh
+EOF
+  if [ -n "$pid_file" ]; then
+    printf 'PIDFile=%s\n' "$pid_file" >> "$service_file"
+  fi
+  cat >> "$service_file" <<EOF
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
 
 [Install]
 WantedBy=default.target

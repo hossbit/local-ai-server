@@ -3,31 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
-source_localai_common() {
-  local candidate
-
-  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
-    if [ -f "$candidate" ]; then
-      # shellcheck source=/dev/null
-      . "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Error: missing LocalAI library: common.sh" >&2
-  exit 1
-}
-source_localai_common
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"

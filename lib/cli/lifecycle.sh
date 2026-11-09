@@ -102,7 +102,7 @@ version_cmd() {
   fi
 
   if [ -x "$LLAMA_SWAP_BIN" ]; then
-    "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print "llama-swap: " $0; exit}'
+    "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print "llama-swap: " $0; exit}' || true
   else
     echo "llama-swap: not installed"
   fi

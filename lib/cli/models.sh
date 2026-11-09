@@ -294,7 +294,7 @@ ui_cmd() {
   fi
 
   registry="$(api_key_registry_path)"
-  if [ -f "$registry" ] && [ -n "$(api_key_active_secrets "$registry" | head -n1)" ]; then
+  if [ -f "$registry" ] && api_key_active_secrets "$registry" | grep . >/dev/null; then
     echo
     echo "API-key auth is enabled. When the browser prompts for credentials,"
     echo "leave the username blank and use your saved API key as the password."

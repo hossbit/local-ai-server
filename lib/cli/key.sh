@@ -64,8 +64,13 @@ key_activate() {
     rm -f "$candidate"
     return 1
   }
-  # shellcheck disable=SC2064
-  trap "rm -f '$candidate' '$candidate_keys'" RETURN
+  # Clear the trap when it runs: a RETURN trap otherwise remains installed
+  # after this function returns and fires on unrelated later returns.
+  key_activate_cleanup() {
+    rm -f -- "${candidate:-}" "${candidate_keys:-}"
+    trap - RETURN
+  }
+  trap key_activate_cleanup RETURN
 
   if ! "$rebuild" "$candidate" "$candidate_keys" >/dev/null; then
     echo "Error: failed to rebuild configuration from the updated key registry." >&2
@@ -235,7 +240,7 @@ key_revoke_cmd() {
   [ -f "$registry" ] || fail "no such key: $target"
   api_key_registry_validate "$registry" || fail "key registry is malformed: $registry"
 
-  local id name created status secret found=0 revoked_name="" row rows=""
+  local id name created status secret found=0 revoked_name="" row rows="" remaining_active=0
   while IFS=$'\t' read -r id name created status secret; do
     [ -n "$id" ] || continue
     if [ "$id" = "$target" ]; then
@@ -245,6 +250,7 @@ key_revoke_cmd() {
       row="$(printf '%s\t%s\t%s\trevoked\t-' "$id" "$name" "$created")"
     else
       row="$(printf '%s\t%s\t%s\t%s\t%s' "$id" "$name" "$created" "$status" "$secret")"
+      [ "$status" != active ] || remaining_active=$((remaining_active + 1))
     fi
     rows="$rows$row"$'\n'
   done < <(api_key_registry_rows "$registry")
@@ -252,12 +258,20 @@ key_revoke_cmd() {
 
   [ "$found" -eq 1 ] || fail "no such key: $target"
 
+  if [ "$remaining_active" -eq 0 ] && [ "${LOCALAI_REQUIRE_API_KEY:-0}" = "1" ]; then
+    fail "refusing to revoke the last active key while LOCALAI_REQUIRE_API_KEY=1; create a replacement first (localai key rotate $target)"
+  fi
+
   local content
   content="$(api_key_registry_content_from_rows "$rows")"
   api_key_registry_write_atomic "$registry" "$content" || fail "failed to save key registry"
 
   echo "Applying configuration..."
   key_activate || echo "Warning: key was revoked, but activation failed; run 'localai reload' to retry." >&2
+
+  if [ "$remaining_active" -eq 0 ]; then
+    echo "Warning: no active API keys remain; the API will be unauthenticated." >&2
+  fi
 
   echo "$(c 31 "Revoked:") $target ($revoked_name)"
 }

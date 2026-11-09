@@ -5,16 +5,10 @@ set -euo pipefail
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 
 source_localai_cli_lib() {
   local name="$1"
@@ -48,8 +42,6 @@ source_localai_cli_lib() {
   fi
   exit 1
 }
-
-source_localai_cli_lib common.sh
 
 AI_DIR="$(resolve_ai_dir)"
 BIN_DIR="$AI_DIR/$LOCALAI_BIN_SUBDIR"

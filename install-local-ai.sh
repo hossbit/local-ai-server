@@ -3,14 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=localai.conf
-. "$SCRIPT_DIR/localai.conf"
-# shellcheck source=lib/common.sh
-source "$SCRIPT_DIR/lib/common.sh"
-# shellcheck source=lib/install.sh
-source "$SCRIPT_DIR/lib/install.sh"
-# shellcheck source=lib/cuda.sh
-source "$SCRIPT_DIR/lib/cuda.sh"
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
+source_localai_lib install.sh
+source_localai_lib cuda.sh
 
 AI_DIR="${LOCALAI_DIR:-}"
 BIN_DIR=""
@@ -167,14 +165,6 @@ resolve_llama_swap_release() {
   [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found in release $LLAMA_SWAP_VERSION"
 }
 
-verify_llama_server() {
-  if "$BIN_DIR/llama-server" --version >/dev/null 2>&1; then
-    return 0
-  fi
-
-  return 1
-}
-
 explain_llama_server_failure() {
   local hint
   hint="$(backend_dependency_hint "$LLAMA_CPP_BACKEND" 2>/dev/null)" ||
@@ -212,6 +202,17 @@ install_llama_cpp_archive() {
 fallback_to_cpu_backend() {
   local failed_backend="$LLAMA_CPP_BACKEND"
 
+  # An explicit cuda request must fail rather than silently substitute CPU
+  # (matching cuda_resolve_explicit_backend and the updater). Only `auto`,
+  # which chose cuda on its own, or an explicit LOCALAI_CUDA_FALLBACK=1 may
+  # fall back here.
+  if [ "$failed_backend" = "cuda" ] &&
+    [ "${ORIGINAL_LLAMA_CPP_BACKEND:-}" != "auto" ] &&
+    [ "${LOCALAI_CUDA_FALLBACK:-0}" != "1" ]; then
+    explain_llama_server_failure
+    exit 1
+  fi
+
   if [ "$LOCALAI_CPU_FALLBACK" != "1" ] || [ "$LLAMA_CPP_BACKEND" = "cpu" ]; then
     explain_llama_server_failure
     exit 1
@@ -227,7 +228,7 @@ fallback_to_cpu_backend() {
 
   log "Installing llama.cpp CPU fallback"
   install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.cpu.tar.gz"
-  if ! verify_llama_server; then
+  if ! llama_server_runs; then
     explain_llama_server_failure
     exit 1
   fi
@@ -251,6 +252,7 @@ MODELS_DIR="$AI_DIR/$LOCALAI_MODELS_SUBDIR"
 LOCALAI_CLI_PATH="$BIN_DIR/$LOCALAI_CLI_NAME"
 LOCALAI_CLI_LINK="$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
 resolve_llama_swap_paths
+ORIGINAL_LLAMA_CPP_BACKEND="$LLAMA_CPP_BACKEND"
 select_llama_cpp_asset_regex ""
 
 mkdir -p "$AI_DIR" "$BIN_DIR" "$LIB_DIR" "$CONF_DIR" "$MODELS_DIR" "$CONF_DIR/$LOCALAI_MODELS_OVERRIDE_SUBDIR" "$CONF_DIR/$LOCALAI_KEYS_SUBDIR"
@@ -271,7 +273,24 @@ resolve_llama_swap_release
 ###############################################################################
 
 DOWNLOAD_DIR=$(mktemp -d)
-trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
+SERVICE_WAS_RUNNING=0
+INSTALL_COMPLETE=0
+cleanup_install() {
+  local status=$?
+
+  trap - EXIT
+  [ -z "${DOWNLOAD_DIR:-}" ] || rm -rf -- "$DOWNLOAD_DIR"
+  if [ "${SERVICE_WAS_RUNNING:-0}" -eq 1 ] && [ "${INSTALL_COMPLETE:-0}" -eq 0 ]; then
+    echo "Install failed; restarting the previous LocalAI service..." >&2
+    if has_user_service; then
+      systemctl --user start "$LOCALAI_SERVICE_NAME" || true
+    elif [ -x "$BIN_DIR/start.sh" ]; then
+      "$BIN_DIR/start.sh" || true
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup_install EXIT
 
 if [ "$LLAMA_CPP_BACKEND" != "cuda" ]; then
   log "Downloading llama.cpp $LLAMA_CPP_VERSION ($LLAMA_CPP_BACKEND backend)"
@@ -282,12 +301,23 @@ log "Downloading llama-swap $LLAMA_SWAP_VERSION"
 
 download_verified_asset "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_URL" "$DOWNLOAD_DIR/llama-swap.tar.gz" "llama-swap"
 
-if [ -x "$BIN_DIR/stop.sh" ] && [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; then
-  log "Stopping the existing LocalAI service"
-  "$BIN_DIR/stop.sh"
-elif [ -x "$AI_DIR/stop.sh" ] && { [ -f "$AI_DIR/$LOCALAI_PID_FILE" ] || [ -f "$CONF_DIR/$LOCALAI_PID_FILE" ]; }; then
-  log "Stopping the existing LocalAI service"
-  "$AI_DIR/stop.sh"
+if pid_file_matches_process "$CONF_DIR/$LOCALAI_PID_FILE" "$CONF_DIR/$LOCALAI_PID_FILE.start"; then
+  SERVICE_WAS_RUNNING=1
+elif [ -f "$AI_DIR/$LOCALAI_PID_FILE" ] &&
+  pid_file_matches_process "$AI_DIR/$LOCALAI_PID_FILE" "$AI_DIR/$LOCALAI_PID_FILE.start"; then
+  SERVICE_WAS_RUNNING=1
+elif has_user_service && systemctl --user is-active --quiet "$LOCALAI_SERVICE_NAME"; then
+  SERVICE_WAS_RUNNING=1
+fi
+
+if [ "$SERVICE_WAS_RUNNING" -eq 1 ]; then
+  if [ -x "$BIN_DIR/stop.sh" ]; then
+    log "Stopping the existing LocalAI service"
+    "$BIN_DIR/stop.sh"
+  elif [ -x "$AI_DIR/stop.sh" ]; then
+    log "Stopping the existing LocalAI service"
+    "$AI_DIR/stop.sh"
+  fi
 fi
 
 ###############################################################################
@@ -300,7 +330,7 @@ if [ "$LLAMA_CPP_BACKEND" = "cuda" ]; then
   cuda_build_and_install "$DOWNLOAD_DIR" || fallback_to_cpu_backend
 else
   install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.tar.gz"
-  if ! verify_llama_server; then
+  if ! llama_server_runs; then
     fallback_to_cpu_backend
   fi
 fi
@@ -345,7 +375,7 @@ log "Installing helper scripts and systemd service"
 mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
 mkdir -p "$LOCALAI_USER_BIN_DIR"
 
-write_systemd_user_service "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" "$BIN_DIR"
+write_systemd_user_service "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" "$BIN_DIR" "$CONF_DIR/$LOCALAI_PID_FILE"
 
 install -m755 "$SCRIPT_DIR/start.sh" "$BIN_DIR/start.sh"
 install -m755 "$SCRIPT_DIR/stop.sh" "$BIN_DIR/stop.sh"
@@ -378,6 +408,16 @@ if ! systemctl --user daemon-reload; then
   echo "Warning: could not reload the systemd user manager." >&2
   echo "You can still use the scripts in $AI_DIR directly." >&2
 fi
+
+if [ "$SERVICE_WAS_RUNNING" -eq 1 ]; then
+  log "Starting LocalAI service"
+  if has_user_service; then
+    systemctl --user start "$LOCALAI_SERVICE_NAME"
+  elif [ -x "$BIN_DIR/start.sh" ]; then
+    "$BIN_DIR/start.sh"
+  fi
+fi
+INSTALL_COMPLETE=1
 
 echo
 echo "============================================================"

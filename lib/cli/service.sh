@@ -40,7 +40,7 @@ status_cmd() {
     echo "Systemd service:"
     systemctl --user status "$SERVICE_UNIT" --no-pager || true
     echo
-    echo "Note: this service uses a helper script and may show active (exited); the process check below is authoritative."
+    echo "Note: systemd supervises the llama-swap process; the process check below is authoritative."
   else
     print_service_details "helper script"
   fi
@@ -71,7 +71,11 @@ check_cmd() {
   if ! models_json="$(curl "${AUTH_CURL_ARGS[@]}" --max-time 10 -fsS "$base/v1/models")"; then
     fail "API did not respond at $base/v1/models"
   fi
-  jq -r '.data[]?.id' <<<"$models_json"
+  local model_ids
+  if ! model_ids="$(jq -r '.data[]?.id' <<<"$models_json")"; then
+    fail "API returned an invalid JSON response from $base/v1/models"
+  fi
+  printf '%s\n' "$model_ids"
 
   if [ "$chat" -eq 1 ]; then
     model=""
@@ -94,7 +98,11 @@ check_cmd() {
       -d "$(jq -n --arg model "$model" '{model: $model, messages: [{role: "user", content: "Reply with OK"}], max_tokens: 8, stream: false}')")"; then
       fail "chat completion failed for $model at $base/v1/chat/completions"
     fi
-    jq -r '.choices[0].message.content // .choices[0].text // .' <<<"$chat_response"
+    local chat_text
+    if ! chat_text="$(jq -r '.choices[0].message.content // .choices[0].text // .' <<<"$chat_response")"; then
+      fail "chat completion for $model returned an invalid JSON response"
+    fi
+    printf '%s\n' "$chat_text"
   fi
 }
 

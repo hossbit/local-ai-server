@@ -38,11 +38,6 @@ fail() {
   exit 1
 }
 
-has_user_service() {
-  command -v systemctl >/dev/null 2>&1 &&
-    systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
-}
-
 print_service_details() {
   local method="$1"
 

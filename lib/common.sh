@@ -58,6 +58,28 @@ source_localai_lib() {
   exit 1
 }
 
+# has_user_service: true when a systemd --user unit with this name exists.
+# Shared by the CLI, updater, installer, and uninstaller (previously copied
+# into several entry points).
+has_user_service() {
+  command -v systemctl >/dev/null 2>&1 &&
+    systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
+}
+
+# llama_swap_version: canonical installed llama-swap version number, parsed
+# from the same `version: vNNN` line everywhere (the updater used to grab the
+# first number anywhere, while rebuild-config.sh used this regex).
+llama_swap_version() {
+  local bin="${1:-${LLAMA_SWAP_BIN:-}}"
+  local output
+
+  [ -n "$bin" ] || return 0
+  output="$("$bin" --version 2>&1 || true)"
+  if [[ "$output" =~ version:[[:space:]]*v?([0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  fi
+}
+
 api_base_url_for_port_file() {
   local port_file="$1"
   local port
@@ -71,7 +93,9 @@ port_is_listening() {
   local port_hex
 
   if command -v ss >/dev/null 2>&1; then
-    ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":${port}$"
+    # grep without -q reads all input, so awk cannot die from SIGPIPE and make
+    # this pipeline fail under `set -o pipefail`.
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep ":${port}$" >/dev/null
     return "$?"
   fi
 
@@ -221,7 +245,7 @@ backend_uses_gpu_layers() {
 # otherwise have partially offloaded successfully. Older pinned llama.cpp
 # builds may predate 'auto', hence the capability flag.
 compute_model_runtime_defaults() {
-  local model_bytes="$1" ram_bytes="$2" backend="$4"
+  local model_bytes="$1" ram_bytes="$2" vram_bytes="${3:-0}" backend="$4"
   local ngl_auto_supported="${5:-1}"
   # gpu_layers uses "-" rather than an empty string as its not-applicable
   # sentinel: bash's `read` collapses consecutive tab delimiters (tab is
@@ -242,6 +266,23 @@ compute_model_runtime_defaults() {
     # File size/VRAM cannot establish that, so automatic defaults stay f16.
     # Compatible models can opt into q8_0 in models.d after auto-tuning.
     [ "$ngl_auto_supported" != "1" ] || gpu_layers=auto
+
+    # VRAM-aware context sizing. A model that already exceeds VRAM spills to
+    # system RAM, where a large KV cache competes with the weights, so keep
+    # context conservative. Conversely, a model that uses at most half of
+    # VRAM leaves enough room for a larger default context.
+    if [[ "$vram_bytes" =~ ^[0-9]+$ ]] && [ "$vram_bytes" -gt 0 ]; then
+      if [ "$model_bytes" -gt "$vram_bytes" ]; then
+        [ "$model_bytes" -lt $((vram_bytes * 2)) ] || ctx=4096
+      elif [ "$model_bytes" -le $((vram_bytes / 2)) ] &&
+        [ "$ram_bytes" -ge $((32 * 1024 * 1024 * 1024)) ]; then
+        [ "$ctx" -ge 16384 ] || ctx=16384
+      fi
+    fi
+  else
+    # The CPU backend is the slow path; match its documented conservative
+    # 4096 default instead of suggesting a GPU-sized context.
+    ctx=4096
   fi
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$ctx" "$gpu_layers" "$flash" "$cache_k" "$cache_v"
@@ -254,7 +295,7 @@ llama_server_supports_ngl_auto() {
   local bin="$1"
 
   [ -x "$bin" ] || return 1
-  "$bin" --help 2>&1 | grep -A1 -- '--n-gpu-layers N' | grep -q "'auto'"
+  "$bin" --help 2>&1 | grep -A1 -- '--n-gpu-layers N' | grep "'auto'" >/dev/null
 }
 
 model_is_embedding_name() {
@@ -303,7 +344,7 @@ localai_model_type() {
 gguf_split_parts() {
   local filename="$1"
 
-  [[ "$filename" =~ ^(.+)-([0-9]+)-of-([0-9]+)\.gguf$ ]]
+  [[ "$filename" =~ ^(.+)-([0-9]+)-of-([0-9]+)(\.[gG][gG][uU][fF])$ ]]
 }
 
 gguf_split_prefix() {
@@ -346,7 +387,7 @@ gguf_primary_model_name() {
   if [ -n "$prefix" ]; then
     printf '%s\n' "$prefix"
   else
-    printf '%s\n' "${filename%.gguf}"
+    printf '%s\n' "${filename%.[gG][gG][uU][fF]}"
   fi
 }
 
@@ -390,7 +431,7 @@ gguf_warn_noncanonical_split_fragment() {
 
 gguf_warn_missing_split_shards() {
   local path="$1"
-  local dir filename prefix index total width i shard
+  local dir filename prefix index total width i shard ext
 
   dir="$(dirname "$path")"
   filename="$(basename "$path")"
@@ -399,10 +440,11 @@ gguf_warn_missing_split_shards() {
   [ "$((10#$index))" -eq 1 ] || return 0
   prefix="${BASH_REMATCH[1]}"
   total="${BASH_REMATCH[3]}"
+  ext="${BASH_REMATCH[4]}"
   width="${#total}"
 
   for ((i = 1; i <= 10#$total; i++)); do
-    shard="$(printf "%s-%0${width}d-of-%s.gguf" "$prefix" "$i" "$total")"
+    shard="$(printf "%s-%0${width}d-of-%s%s" "$prefix" "$i" "$total" "$ext")"
     if [ ! -f "$dir/$shard" ]; then
       echo "Warning: split GGUF is missing shard: $dir/$shard" >&2
     fi
@@ -411,14 +453,15 @@ gguf_warn_missing_split_shards() {
 
 localai_model_entries() {
   local models_dir="$1"
-  local rel dir filename id
+  local rel path dir filename id
   local -a entries=()
   local -A primary_counts=()
 
   [ -d "$models_dir" ] || return 0
 
-  while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rel="${path#"$models_dir"/}"
     filename="${rel##*/}"
     gguf_model_file_is_mmproj "$filename" && continue
     if gguf_model_file_is_noncanonical_split_fragment "$filename"; then
@@ -430,7 +473,7 @@ localai_model_entries() {
     dir="${rel%/*}"
     [ "$dir" = "$rel" ] && dir="."
     primary_counts["$dir"]=$(( ${primary_counts["$dir"]:-0} + 1 ))
-  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -name '*.gguf' -printf '%P\n' | sort)
+  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print | sort)
 
   for rel in "${entries[@]}"; do
     filename="${rel##*/}"
@@ -455,19 +498,20 @@ localai_model_entries() {
 
 localai_has_model_entries() {
   local models_dir="$1"
-  local rel filename
+  local rel path filename
 
   [ -d "$models_dir" ] || return 1
 
-  while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    rel="${path#"$models_dir"/}"
     filename="${rel##*/}"
     gguf_model_file_is_mmproj "$filename" && continue
     gguf_model_file_is_noncanonical_split_fragment "$filename" && continue
     if gguf_model_file_is_primary "$filename"; then
       return 0
     fi
-  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -name '*.gguf' -printf '%P\n' | sort)
+  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print | sort)
 
   return 1
 }
@@ -479,7 +523,7 @@ localai_model_file_for_id() {
 
   while IFS=$'\t' read -r id rel path; do
     [ -n "$id" ] || continue
-    if [ "$id" = "$wanted" ] || [ "${rel%.gguf}" = "$wanted" ]; then
+    if [ "$id" = "$wanted" ] || [ "${rel%.[gG][gG][uU][fF]}" = "$wanted" ]; then
       printf '%s\n' "$path"
       return 0
     fi
@@ -490,16 +534,17 @@ localai_model_file_for_id() {
 
 localai_model_bytes() {
   local path="$1"
-  local dir filename prefix total width i shard bytes=0 shard_bytes
+  local dir filename prefix total width i shard ext bytes=0 shard_bytes
 
   filename="$(basename "$path")"
   dir="$(dirname "$path")"
   if gguf_split_parts "$filename"; then
     prefix="${BASH_REMATCH[1]}"
     total="${BASH_REMATCH[3]}"
+    ext="${BASH_REMATCH[4]}"
     width="${#total}"
     for ((i = 1; i <= 10#$total; i++)); do
-      shard="$(printf "%s-%0${width}d-of-%s.gguf" "$prefix" "$i" "$total")"
+      shard="$(printf "%s-%0${width}d-of-%s%s" "$prefix" "$i" "$total" "$ext")"
       if [ -f "$dir/$shard" ]; then
         shard_bytes="$(stat -c '%s' "$dir/$shard" 2>/dev/null || printf '0')"
         bytes=$((bytes + shard_bytes))
@@ -684,23 +729,52 @@ api_key_registry_rows() {
   done < "$file"
 }
 
-# api_auth_curl_args: refreshes the global array AUTH_CURL_ARGS with
-# -H "Authorization: Bearer <secret>" when at least one API key is active,
-# so the CLI's own requests to llama-swap (models/load/unload/check/start
-# health checks/stop's drain) keep working once `localai key create` turns
-# on authentication. Empty (no header) when there is no active key.
+# api_auth_curl_args: refreshes the global array AUTH_CURL_ARGS with a curl
+# --config file supplying "Authorization: Bearer <secret>" when at least one
+# API key is active, so the CLI's own requests to llama-swap
+# (models/load/unload/check/start health checks/stop's drain) keep working
+# once `localai key create` turns on authentication. Empty (no header) when
+# there is no active key.
+#
+# The secret is written to an already-unlinked mode-0600 temp file and passed
+# to curl as /dev/fd/N, never as a command-line argument, so it cannot be
+# read from `ps`.
 AUTH_CURL_ARGS=()
+AUTH_CURL_FD=""
 api_auth_curl_args() {
-  local registry secret
+  local registry secret line tmp
 
   AUTH_CURL_ARGS=()
+  if [ -n "${AUTH_CURL_FD:-}" ]; then
+    exec {AUTH_CURL_FD}<&- 2>/dev/null || true
+    AUTH_CURL_FD=""
+  fi
+
   registry="$(api_key_registry_path)"
   [ -f "$registry" ] || return 0
-  secret="$(api_key_active_secrets "$registry" | head -n1)"
+
+  secret=""
+  while IFS= read -r line; do
+    secret="$line"
+    break
+  done < <(api_key_active_secrets "$registry")
   [ -n "$secret" ] || return 0
+
+  tmp="$(mktemp "${TMPDIR:-/tmp}/localai-auth.XXXXXX")" || return 0
+  if ! printf 'header = "Authorization: Bearer %s"\n' "$secret" > "$tmp" ||
+    ! chmod 600 "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  if ! exec {AUTH_CURL_FD}<"$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+
   # Used by scripts sourcing this library.
   # shellcheck disable=SC2034
-  AUTH_CURL_ARGS=(-H "Authorization: Bearer $secret")
+  AUTH_CURL_ARGS=(--config "/dev/fd/$AUTH_CURL_FD")
 }
 
 api_key_active_secrets() {

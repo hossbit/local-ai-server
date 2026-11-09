@@ -17,6 +17,11 @@ suggest_for_model() {
   IFS=$'\t' read -r ctx gpu_layers flash cache_k cache_v \
     < <(compute_model_runtime_defaults "$model_bytes" "$ram_bytes" "$vram_bytes" "$backend")
   [ "$gpu_layers" != "-" ] || gpu_layers="$LOCALAI_N_GPU_LAYERS"
+  # Auto-tune only rewrites context on GPU backends; elsewhere report the
+  # configured value so this advice matches what rebuild-config.sh applies.
+  if [ "${LOCALAI_AUTO_TUNE:-1}" != "1" ] || [ "$backend" = "cpu" ]; then
+    ctx="${LOCALAI_CTX_SIZE:-$ctx}"
+  fi
 
   echo
   echo "$id"

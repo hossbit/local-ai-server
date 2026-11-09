@@ -3,31 +3,10 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
-  # shellcheck source=/dev/null
-  . "$SCRIPT_DIR/../conf/localai.conf"
-elif [ -f "$SCRIPT_DIR/localai.conf" ]; then
-  # shellcheck source=localai.conf
-  . "$SCRIPT_DIR/localai.conf"
-else
-  echo "Error: localai.conf not found." >&2
-  exit 1
-fi
-source_localai_common() {
-  local candidate
-
-  for candidate in "$SCRIPT_DIR/lib/common.sh" "$SCRIPT_DIR/../lib/common.sh"; do
-    if [ -f "$candidate" ]; then
-      # shellcheck source=/dev/null
-      . "$candidate"
-      return 0
-    fi
-  done
-
-  echo "Error: missing LocalAI library: common.sh" >&2
-  exit 1
-}
-source_localai_common
+# shellcheck source=/dev/null
+. "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
+  . "$SCRIPT_DIR/../lib/bootstrap.sh" 2>/dev/null ||
+  { echo "Error: missing LocalAI bootstrap library: lib/bootstrap.sh" >&2; exit 1; }
 source_localai_lib install.sh
 source_localai_lib cuda.sh
 
@@ -40,6 +19,8 @@ LLAMA_CPP_ASSET_RE=""
 LOCALAI_SOURCE_DIR=""
 START_AFTER_UPDATE=1
 UPDATE_ALL=0
+UPDATE_COMPLETE=0
+SERVICE_STOPPED=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -122,11 +103,6 @@ resolve_localai_source_dir() {
   [ -x "$LOCALAI_SOURCE_DIR/localai" ] || fail "downloaded LocalAI source is missing localai"
 }
 
-has_user_service() {
-  command -v systemctl >/dev/null 2>&1 &&
-    systemctl --user cat "$LOCALAI_SERVICE_NAME" >/dev/null 2>&1
-}
-
 stop_localai() {
   if has_user_service; then
     log "Stopping LocalAI service"
@@ -158,6 +134,21 @@ start_localai() {
   fi
 }
 
+# cleanup_update: always remove the temporary workspace, and if a failure
+# exits after the running service was stopped, bring the previous install
+# back up instead of leaving LocalAI down.
+cleanup_update() {
+  local status=$?
+
+  trap - EXIT
+  [ -z "${TMP_DIR:-}" ] || rm -rf -- "$TMP_DIR"
+  if [ "$SERVICE_STOPPED" -eq 1 ] && [ "$START_AFTER_UPDATE" -eq 1 ] && [ "$UPDATE_COMPLETE" -eq 0 ]; then
+    echo "Update failed; restarting the previous LocalAI service..." >&2
+    start_localai || true
+  fi
+  exit "$status"
+}
+
 print_current_versions() {
   local localai_version
 
@@ -172,28 +163,6 @@ print_current_versions() {
   llama_cpp_display_version "$LLAMA_CPP_BACKEND"
   echo "llama.cpp backend: $LLAMA_CPP_BACKEND"
   "$LLAMA_SWAP_BIN" --version 2>&1 | awk 'NR == 1 {print; exit}'
-}
-
-verify_llama_server() {
-  if "$BIN_DIR/llama-server" --version >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local hint
-  hint="$(backend_dependency_hint "$LLAMA_CPP_BACKEND" 2>/dev/null)" ||
-    hint="Fix:
-  Install the missing runtime libraries for your selected backend and rerun."
-
-  cat >&2 <<EOF
-Error: installed llama.cpp backend '$LLAMA_CPP_BACKEND' did not run on this system.
-
-$hint
-
-Or, try another backend:
-  LLAMA_CPP_BACKEND=cpu $0
-  LLAMA_CPP_BACKEND=vulkan $0
-EOF
-  exit 1
 }
 
 cleanup_bin_artifacts() {
@@ -247,7 +216,7 @@ update_llama_cpp_backend() {
     tar -xzf "$TMP_DIR/llama.cpp-$backend.tar.gz" -C "$TMP_DIR/llama.cpp-$backend" || fail "failed to extract llama.cpp ($backend)"
     install_llama_cpp_release_dir "$TMP_DIR/llama.cpp-$backend" "$TMP_DIR"
   fi
-  verify_llama_server
+  verify_llama_server || exit 1
 }
 
 refresh_localai_libs() {
@@ -291,7 +260,7 @@ if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" 
   cp "$AI_DIR/$LOCALAI_PORT_FILE" "$CONF_DIR/$LOCALAI_PORT_FILE"
 fi
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap cleanup_update EXIT
 resolve_localai_source_dir
 
 ###############################################################################
@@ -322,7 +291,7 @@ if [ "$LOCALAI_SOURCE_DIR" != "$AI_DIR" ]; then
     ln -sfn "$BIN_DIR/localai" "$LOCALAI_USER_BIN_DIR/$LOCALAI_CLI_NAME"
   fi
   mkdir -p "$LOCALAI_SYSTEMD_USER_DIR"
-  write_systemd_user_service "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" "$BIN_DIR"
+  write_systemd_user_service "$LOCALAI_SYSTEMD_USER_DIR/$LOCALAI_SERVICE_NAME" "$BIN_DIR" "$CONF_DIR/$LOCALAI_PID_FILE"
   systemctl --user daemon-reload >/dev/null 2>&1 || true
   for OLD_HELPER in start.sh stop.sh rebuild-config.sh update-local-ai.sh uninstall-local-ai.sh "$LOCALAI_CLI_NAME"; do
     rm -f -- "$AI_DIR/$OLD_HELPER"
@@ -337,8 +306,19 @@ fi
 ###############################################################################
 
 log "Fetching release metadata"
-LLAMA_CPP_JSON="$(resolve_llama_cpp_latest_json)"
-LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_LATEST_API")"
+if [ "${LLAMA_CPP_VERSION:-latest}" = "latest" ]; then
+  LLAMA_CPP_JSON="$(resolve_llama_cpp_latest_json)"
+else
+  log "Using pinned llama.cpp version $LLAMA_CPP_VERSION"
+  LLAMA_CPP_JSON="$(github_api_get "$(release_api_for_version "$LLAMA_CPP_VERSION" "$LLAMA_CPP_RELEASE_API" "$LLAMA_CPP_LATEST_API")")"
+fi
+
+if [ "${LLAMA_SWAP_VERSION:-latest}" = "latest" ]; then
+  LLAMA_SWAP_JSON="$(github_api_get "$LLAMA_SWAP_LATEST_API")"
+else
+  log "Using pinned llama-swap version $LLAMA_SWAP_VERSION"
+  LLAMA_SWAP_JSON="$(github_api_get "$(release_api_for_version "$LLAMA_SWAP_VERSION" "$LLAMA_SWAP_RELEASE_API" "$LLAMA_SWAP_LATEST_API")")"
+fi
 
 LLAMA_CPP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_CPP_JSON")
 LLAMA_SWAP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")
@@ -349,7 +329,7 @@ LLAMA_SWAP_TAG=$(jq -er '.tag_name' <<<"$LLAMA_SWAP_JSON")
 # directly regardless of channel.
 LLAMA_CPP_BINARY_JSON="$(resolve_llama_cpp_binary_json "$LLAMA_CPP_JSON")"
 LLAMA_CPP_BINARY_TAG=$(jq -er '.tag_name' <<<"$LLAMA_CPP_BINARY_JSON")
-LLAMA_SWAP_URL="$(release_asset_url "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_ASSET_RE")"
+LLAMA_SWAP_URL="${LLAMA_SWAP_URL:-$(release_asset_url "$LLAMA_SWAP_JSON" "$LLAMA_SWAP_ASSET_RE")}"
 
 [ -n "$LLAMA_SWAP_URL" ] || fail "no llama-swap Linux amd64 asset found"
 
@@ -378,11 +358,7 @@ fi
 # DETECT INSTALLED VERSIONS
 ###############################################################################
 
-CURRENT_LLAMA_SWAP=$(
-  "$LLAMA_SWAP_BIN" --version 2>&1 |
-    grep -oE 'v?[0-9]+' |
-    head -n1 || true
-)
+CURRENT_LLAMA_SWAP="$(llama_swap_version "$LLAMA_SWAP_BIN")"
 printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LLAMA_SWAP_TAG"
 
 NEED_CPP_FOR=()
@@ -422,7 +398,17 @@ fi
 # STOP RUNNING SERVICE
 ###############################################################################
 
-stop_localai
+SERVICE_WAS_RUNNING=0
+if pid_file_matches_process "$CONF_DIR/$LOCALAI_PID_FILE" "$CONF_DIR/$LOCALAI_PID_FILE.start"; then
+  SERVICE_WAS_RUNNING=1
+elif has_user_service && systemctl --user is-active --quiet "$LOCALAI_SERVICE_NAME"; then
+  SERVICE_WAS_RUNNING=1
+fi
+
+if [ "$SERVICE_WAS_RUNNING" -eq 1 ]; then
+  SERVICE_STOPPED=1
+  stop_localai
+fi
 
 ###############################################################################
 # UPDATE LLAMA.CPP BACKEND(S)
@@ -465,6 +451,8 @@ if [ "$START_AFTER_UPDATE" -eq 1 ]; then
 else
   log "Service left stopped (--no-start)"
 fi
+
+UPDATE_COMPLETE=1
 
 log "LocalAI update completed"
 print_current_versions
