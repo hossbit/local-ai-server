@@ -237,7 +237,7 @@ fallback_to_cpu_backend() {
 cleanup_bin_artifacts() {
   log "Cleaning old llama.cpp folders and archives"
 
-  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp ! -name llama.cpp.d -exec rm -rf -- {} +
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp ! -name llama.cpp.d ! -name "${LOCALAI_PREVIOUS_SUBDIR:-previous}" ! -name "${LOCALAI_PREVIOUS_SUBDIR:-previous}.pending" -exec rm -rf -- {} +
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
@@ -265,6 +265,9 @@ fi
 ###############################################################################
 
 install_system_dependencies
+# Recorded in the install manifest before "latest" resolves to a tag.
+LLAMA_CPP_POLICY="$LLAMA_CPP_VERSION"
+LLAMA_SWAP_POLICY="$LLAMA_SWAP_VERSION"
 resolve_llama_cpp_url
 resolve_llama_swap_release
 
@@ -418,6 +421,17 @@ if [ "$SERVICE_WAS_RUNNING" -eq 1 ]; then
   fi
 fi
 INSTALL_COMPLETE=1
+
+if [ "$LLAMA_CPP_BACKEND" = "cuda" ]; then
+  MANIFEST_CPP_URL=""
+  MANIFEST_CPP_DIGEST=""
+else
+  MANIFEST_CPP_URL="$LLAMA_CPP_URL"
+  MANIFEST_CPP_DIGEST="$(release_asset_digest "$LLAMA_CPP_BINARY_JSON" "$LLAMA_CPP_URL")"
+fi
+localai_write_manifest "$LLAMA_CPP_POLICY" "$LLAMA_CPP_VERSION" "$MANIFEST_CPP_URL" "$MANIFEST_CPP_DIGEST" \
+  "$LLAMA_SWAP_POLICY" "$LLAMA_SWAP_VERSION" "$LLAMA_SWAP_URL" ||
+  echo "Warning: could not write $CONF_DIR/$LOCALAI_MANIFEST_FILE" >&2
 
 echo
 echo "============================================================"

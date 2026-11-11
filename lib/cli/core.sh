@@ -27,6 +27,10 @@ Commands:
   backend     Manage installed backends (list, install without switching)
   update      Update llama.cpp, llama-swap, and helper scripts
               Use --all to update every installed backend, not just the active one
+              Use --check to only report available updates (changes nothing)
+              A failed restart restores the previous versions automatically
+  rollback    Switch back to the llama.cpp/llama-swap versions the last update
+              replaced (run again to return to the newer ones)
   version     Show LocalAI and component versions
   uninstall   Uninstall LocalAI
   help        Show this help

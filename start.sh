@@ -64,6 +64,14 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE" "$PID_START_FILE"
 fi
 
+# Another program on this port would answer the readiness probe below, so a
+# llama-swap that failed to bind would be reported as started.
+if port_is_listening "$PORT"; then
+  echo "Error: port $PORT is already in use by another program, so LocalAI cannot listen on it." >&2
+  echo "Stop that program, or choose another port: echo NEW_PORT > $PORT_FILE" >&2
+  exit 1
+fi
+
 "$BIN_DIR/rebuild-config.sh"
 
 if ! localai_has_model_entries "$AI_DIR/$LOCALAI_MODELS_SUBDIR"; then
@@ -99,6 +107,12 @@ done
 if ! command -v curl >/dev/null 2>&1 ||
   ! curl "${AUTH_CURL_ARGS[@]}" --max-time 2 -fsS "http://${LOCALAI_LISTEN_HOST}:${PORT}/running" >/dev/null 2>&1; then
   fail_start "llama-swap started but API did not become ready at http://${LOCALAI_LISTEN_HOST}:${PORT}/running"
+fi
+
+# The answer must come from this llama-swap, not one that exited after a
+# failed bind while something else took the port.
+if ! pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
+  fail_start "llama-swap exited right after starting"
 fi
 
 echo "LocalAI started at http://${LOCALAI_LISTEN_HOST}:${PORT} (PID $PID)"

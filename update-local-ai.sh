@@ -21,13 +21,36 @@ START_AFTER_UPDATE=1
 UPDATE_ALL=0
 UPDATE_COMPLETE=0
 SERVICE_STOPPED=0
+SERVICE_STARTED=0
+CHECK_ONLY=0
+SNAPSHOT_ACTIVE=0
+PENDING_SNAPSHOT=""
+# Captured before anything resolves "latest" to a concrete tag, so the
+# installation manifest records the policy, not just the result.
+LLAMA_CPP_POLICY="${LLAMA_CPP_VERSION:-latest}"
+LLAMA_SWAP_POLICY="${LLAMA_SWAP_VERSION:-latest}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-start) START_AFTER_UPDATE=0 ;;
     --all) UPDATE_ALL=1 ;;
+    --check) CHECK_ONLY=1 ;;
+    -h|--help)
+      cat <<EOF
+Usage: $0 [--check] [--no-start] [--all]
+
+Installs the newest llama.cpp build for the active backend and the newest
+llama-swap, then restarts LocalAI. If the restarted service does not become
+ready, the previous versions are restored automatically.
+
+  --check     Only report installed and latest versions; change nothing
+  --no-start  Leave LocalAI stopped after updating
+  --all       Update every installed backend, not just the active one
+EOF
+      exit 0
+      ;;
     *)
-      echo "Usage: $0 [--no-start] [--all]" >&2
+      echo "Usage: $0 [--check] [--no-start] [--all]" >&2
       exit 2
       ;;
   esac
@@ -137,16 +160,81 @@ start_localai() {
 # cleanup_update: always remove the temporary workspace, and if a failure
 # exits after the running service was stopped, bring the previous install
 # back up instead of leaving LocalAI down.
+#
+# When components were already replaced, swap the pending snapshot back in
+# first, so the restarted service runs the versions that worked before
+# rather than the ones that just failed.
 cleanup_update() {
   local status=$?
 
   trap - EXIT
   [ -z "${TMP_DIR:-}" ] || rm -rf -- "$TMP_DIR"
+  if [ "$UPDATE_COMPLETE" -eq 0 ] && [ "$SNAPSHOT_ACTIVE" -eq 1 ]; then
+    if [ "$SERVICE_STARTED" -eq 1 ]; then
+      stop_localai >/dev/null 2>&1 || true
+    fi
+    if localai_snapshot_has_content "$PENDING_SNAPSHOT"; then
+      echo "Update failed; restoring the previous llama.cpp / llama-swap versions..." >&2
+      if localai_snapshot_swap "$PENDING_SNAPSHOT"; then
+        rm -rf -- "$PENDING_SNAPSHOT"
+        echo "Previous versions restored." >&2
+      else
+        echo "Warning: some components could not be restored automatically." >&2
+        echo "The pre-update files are kept in $PENDING_SNAPSHOT; run 'localai rollback' to retry." >&2
+      fi
+    else
+      rm -rf -- "$PENDING_SNAPSHOT"
+    fi
+    # --all repoints the active backend while it works; put back the one
+    # that was active before the update.
+    if [ -n "${ORIGINAL_BACKEND:-}" ] && [ -d "$BIN_DIR/llama.cpp.d/$ORIGINAL_BACKEND" ]; then
+      LLAMA_CPP_BACKEND="$ORIGINAL_BACKEND"
+      activate_llama_cpp_backend || true
+    fi
+  fi
   if [ "$SERVICE_STOPPED" -eq 1 ] && [ "$START_AFTER_UPDATE" -eq 1 ] && [ "$UPDATE_COMPLETE" -eq 0 ]; then
-    echo "Update failed; restarting the previous LocalAI service..." >&2
-    start_localai || true
+    echo "Restarting the previous LocalAI service..." >&2
+    start_localai || echo "Warning: LocalAI did not restart. Check: localai logs" >&2
   fi
   exit "$status"
+}
+
+# finish_snapshot: after a successful update, keep the replaced components
+# as the rollback point (or discard them when LOCALAI_KEEP_PREVIOUS=0).
+finish_snapshot() {
+  local previous
+
+  [ "$SNAPSHOT_ACTIVE" -eq 1 ] || return 0
+  previous="$(localai_previous_dir)"
+  if [ "${LOCALAI_KEEP_PREVIOUS:-1}" = "1" ] && localai_snapshot_has_content "$PENDING_SNAPSHOT"; then
+    rm -rf -- "$previous"
+    mv -- "$PENDING_SNAPSHOT" "$previous"
+    echo "Previous versions kept for 'localai rollback' in $previous"
+  else
+    rm -rf -- "$PENDING_SNAPSHOT"
+  fi
+  SNAPSHOT_ACTIVE=0
+}
+
+# recover_interrupted_update: a pending snapshot left behind means an
+# earlier update was killed before it could finish or roll back (power loss,
+# SIGKILL). Every component swap is atomic, so restoring the snapshot returns
+# to the exact pre-update state instead of a guessed mix.
+recover_interrupted_update() {
+  local pending
+
+  pending="$(localai_previous_dir).pending"
+  [ -d "$pending" ] || return 0
+  if [ "$CHECK_ONLY" -eq 1 ]; then
+    echo "Warning: an earlier update did not finish; run 'localai update' to recover it." >&2
+    return 0
+  fi
+  log "Recovering from an interrupted update"
+  if localai_snapshot_has_content "$pending"; then
+    localai_snapshot_swap "$pending" ||
+      fail "could not restore the components saved in $pending. Inspect it, or run 'localai rollback'."
+  fi
+  rm -rf -- "$pending"
 }
 
 print_current_versions() {
@@ -168,7 +256,7 @@ print_current_versions() {
 cleanup_bin_artifacts() {
   log "Cleaning old llama.cpp folders and archives"
 
-  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp ! -name llama.cpp.d -exec rm -rf -- {} +
+  find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type d ! -name llama.cpp ! -name llama.cpp.d ! -name "${LOCALAI_PREVIOUS_SUBDIR:-previous}" ! -name "${LOCALAI_PREVIOUS_SUBDIR:-previous}.pending" -exec rm -rf -- {} +
   find "$BIN_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.tar.gz' -delete
 }
 
@@ -199,7 +287,6 @@ update_llama_cpp_backend() {
     current_version="$(llama_cpp_backend_version "$backend")"
     compare_tag="$LLAMA_CPP_BINARY_TAG"
   fi
-  printf 'llama.cpp (%s): installed=%s latest=%s\n' "$backend" "${current_version:-none}" "$compare_tag"
 
   if [ -n "$current_version" ] && llama_cpp_versions_match "$compare_tag" "$current_version"; then
     return 0
@@ -261,7 +348,16 @@ if [ ! -f "$CONF_DIR/$LOCALAI_PORT_FILE" ] && [ -f "$AI_DIR/$LOCALAI_PORT_FILE" 
 fi
 TMP_DIR=$(mktemp -d)
 trap cleanup_update EXIT
-resolve_localai_source_dir
+# Saved before update_llama_cpp_backend changes it per backend, so the
+# manifest can name the active backend's release asset.
+ACTIVE_ASSET_RE="$LLAMA_CPP_ASSET_RE"
+recover_interrupted_update
+if [ "$CHECK_ONLY" -eq 0 ]; then
+  resolve_localai_source_dir
+else
+  # --check changes nothing, so it skips the helper-script refresh below.
+  LOCALAI_SOURCE_DIR="$AI_DIR"
+fi
 
 ###############################################################################
 # REFRESH INSTALLED HELPER SCRIPTS
@@ -387,12 +483,59 @@ if [ -n "$CURRENT_LLAMA_SWAP" ]; then
   fi
 fi
 
+# write_update_manifest: record what is now installed for the active backend.
+write_update_manifest() {
+  local release url="" digest=""
+
+  if [ "$ORIGINAL_BACKEND" = "cuda" ]; then
+    release="$LLAMA_CPP_TAG"
+  else
+    release="$LLAMA_CPP_BINARY_TAG"
+    if [ -n "$ACTIVE_ASSET_RE" ]; then
+      url="$(release_asset_url "$LLAMA_CPP_BINARY_JSON" "$ACTIVE_ASSET_RE")"
+      [ -z "$url" ] || digest="$(release_asset_digest "$LLAMA_CPP_BINARY_JSON" "$url")"
+    fi
+  fi
+  localai_write_manifest "$LLAMA_CPP_POLICY" "$release" "$url" "$digest" \
+    "$LLAMA_SWAP_POLICY" "$LLAMA_SWAP_TAG" "$LLAMA_SWAP_URL" ||
+    echo "Warning: could not write $CONF_DIR/$LOCALAI_MANIFEST_FILE" >&2
+}
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+  echo
+  if ((${#NEED_CPP_FOR[@]} == 0 && NEED_SWAP == 0)); then
+    echo "LocalAI is up to date. Nothing was changed."
+  else
+    echo "Updates available:"
+    for BACKEND in "${NEED_CPP_FOR[@]}"; do
+      echo "  llama.cpp ($BACKEND)"
+    done
+    ((NEED_SWAP == 0)) || echo "  llama-swap"
+    echo "Nothing was changed. Run 'localai update' to install them."
+  fi
+  exit 0
+fi
+
 if ((${#NEED_CPP_FOR[@]} == 0 && NEED_SWAP == 0)); then
   log "Everything is already up to date"
   cleanup_bin_artifacts
+  [ -f "$CONF_DIR/$LOCALAI_MANIFEST_FILE" ] || write_update_manifest
   print_current_versions
   exit 0
 fi
+
+###############################################################################
+# START THE UPDATE SNAPSHOT
+###############################################################################
+
+# Everything this update replaces is recorded here first, so any later
+# failure can put the previous versions back (see cleanup_update).
+PENDING_SNAPSHOT="$(localai_previous_dir).pending"
+localai_snapshot_begin "$PENDING_SNAPSHOT" ||
+  fail "could not create the update snapshot in $PENDING_SNAPSHOT; nothing was changed"
+# shellcheck disable=SC2034 # Read by install_llama_cpp_release_dir (lib/install.sh).
+LOCALAI_PREVIOUS_DIR="$PENDING_SNAPSHOT"
+SNAPSHOT_ACTIVE=1
 
 ###############################################################################
 # STOP RUNNING SERVICE
@@ -439,20 +582,35 @@ if ((NEED_SWAP)); then
 
   LLAMA_SWAP_REAL=$(find "$TMP_DIR/llama-swap" -type f -name llama-swap | head -n1)
   [ -n "$LLAMA_SWAP_REAL" ] || fail "llama-swap was not found in the downloaded archive"
-  install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH"
+  chmod +x "$LLAMA_SWAP_REAL"
+  [ -n "$(llama_swap_version "$LLAMA_SWAP_REAL")" ] ||
+    fail "the downloaded llama-swap $LLAMA_SWAP_TAG did not run on this system"
+  localai_snapshot_add_file "$PENDING_SNAPSHOT" llama-swap "$LLAMA_SWAP_INSTALL_PATH" ||
+    fail "could not save the current llama-swap before replacing it"
+  install -m755 "$LLAMA_SWAP_REAL" "$LLAMA_SWAP_INSTALL_PATH.new"
+  mv -f -- "$LLAMA_SWAP_INSTALL_PATH.new" "$LLAMA_SWAP_INSTALL_PATH"
 fi
 
 ###############################################################################
 # RESTART SERVICE
 ###############################################################################
 
+# start.sh (run directly or by the systemd unit) only returns success once
+# llama-swap answers on its API, so a failure here means the new versions do
+# not work on this system; cleanup_update then restores the previous ones.
 if [ "$START_AFTER_UPDATE" -eq 1 ]; then
-  start_localai
+  SERVICE_STARTED=1
+  if ! start_localai; then
+    echo "Error: LocalAI did not become ready with the updated components." >&2
+    exit 1
+  fi
 else
   log "Service left stopped (--no-start)"
 fi
 
 UPDATE_COMPLETE=1
+finish_snapshot
+write_update_manifest
 
 log "LocalAI update completed"
 print_current_versions

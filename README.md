@@ -338,9 +338,33 @@ Most users only need these:
 | `localai load MODEL` | Warm one model. |
 | `localai unload MODEL` | Release one loaded model. |
 | `localai key ...` | Manage API keys (`create`, `list`, `revoke`, `rotate`) — see [API keys](#api-keys). |
-| `localai update` | Update installed components. |
+| `localai update` | Update installed components. `--check` only reports what is available. |
+| `localai rollback` | Switch back to the llama.cpp/llama-swap versions the last update replaced. |
 | `localai version` | Show component versions. |
 | `localai uninstall` | Remove helper files; models are kept by default. |
+
+### Safe updates
+
+`localai update` always installs the newest upstream llama.cpp build and
+llama-swap release; versions are never pinned by default. To keep a working
+setup working:
+
+- If a downloaded build does not run on your system, the previous one is put
+  back.
+- After the update, LocalAI restarts and waits for the API. If it does not
+  become ready, the previous versions are restored and restarted
+  automatically.
+- The versions an update replaced are kept, so `localai rollback` can switch
+  back later. Run `localai rollback` again to return to the newer versions.
+  Only one previous version is kept. To delete it after each successful
+  update instead, set `LOCALAI_KEEP_PREVIOUS=0` in `~/ai/conf/localai.conf`.
+- `localai update --check` shows what would change without changing anything.
+- `~/ai/conf/installed.json` records what was actually installed: resolved
+  release, build, backend, download URL and checksum, llama-swap version, OS,
+  and GPU. Include it when reporting a problem.
+
+Models, `models.d` overrides, API keys, and your `localai.conf` settings are
+never touched by an update or a rollback.
 
 ## API keys
 

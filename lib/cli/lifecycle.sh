@@ -106,6 +106,75 @@ version_cmd() {
   else
     echo "llama-swap: not installed"
   fi
+
+  if [ -f "$CONF_DIR/${LOCALAI_MANIFEST_FILE:-installed.json}" ]; then
+    echo "Install record: $CONF_DIR/${LOCALAI_MANIFEST_FILE:-installed.json}"
+  fi
+  if localai_snapshot_has_content "$(localai_previous_dir)"; then
+    echo "Rollback: available ('localai rollback')"
+  fi
+}
+
+localai_service_running() {
+  pid_file_matches_process "$PID_FILE" "$PID_START_FILE" && return 0
+  has_user_service && systemctl --user is-active --quiet "$SERVICE_UNIT"
+}
+
+# rollback_cmd: swap the llama.cpp backend(s) and llama-swap kept by the last
+# successful `localai update` with the live ones. Swapping means running it
+# again returns to the newer versions. If an update was interrupted before
+# it could finish, its snapshot (the exact pre-update state) is used instead.
+rollback_cmd() {
+  local snap pending was_running=0
+
+  [ "$#" -eq 0 ] || fail "usage: localai rollback"
+  snap="$(localai_previous_dir)"
+  pending="$snap.pending"
+  if [ -d "$pending" ]; then
+    echo "An earlier update did not finish; restoring the versions from before it."
+    snap="$pending"
+  fi
+  if ! localai_snapshot_has_content "$snap"; then
+    fail "no previous version is available to roll back to.
+A rollback point is kept after each successful 'localai update' that replaced
+llama.cpp or llama-swap (unless LOCALAI_KEEP_PREVIOUS=0)."
+  fi
+
+  echo "Current versions:"
+  localai_describe_install | sed 's/^/  /'
+  if [ -f "$snap/info" ]; then
+    echo "Restoring versions saved $(sed -n 's/^created=//p' "$snap/info" | head -n1):"
+    sed -n 's/^component=/  /p' "$snap/info"
+  else
+    echo "Restoring the saved versions."
+  fi
+  echo
+
+  if localai_service_running; then
+    was_running=1
+    service_cmd stop
+  fi
+
+  localai_snapshot_swap "$snap" ||
+    fail "some components could not be restored; the saved files remain in $snap"
+
+  if [ "$was_running" -eq 1 ] && ! service_cmd start; then
+    echo "Error: LocalAI did not become ready with the restored versions; switching back." >&2
+    service_cmd stop >/dev/null 2>&1 || true
+    localai_snapshot_swap "$snap" || true
+    service_cmd start || true
+    fail "rollback failed; the versions that were active before are running again"
+  fi
+
+  if [ "$snap" = "$pending" ]; then
+    # It now holds the half-installed components of the interrupted update.
+    rm -rf -- "$pending"
+    echo "Recovered the installation from before the interrupted update."
+  else
+    echo "Rollback complete. Run 'localai rollback' again to return to the newer versions."
+  fi
+  echo
+  version_cmd
 }
 
 uninstall_cmd() {

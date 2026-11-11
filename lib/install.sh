@@ -484,7 +484,17 @@ install_llama_cpp_release_dir() {
   fi
 
   _LLAMA_CPP_INSTALL_STAGING=""
-  rm -rf -- "$_LLAMA_CPP_INSTALL_OLD"
+  # During `localai update`, keep the replaced slot in the update snapshot so
+  # a failed restart (or a later `localai rollback`) can restore it.
+  if [ -n "${LOCALAI_PREVIOUS_DIR:-}" ] && [ -d "$LOCALAI_PREVIOUS_DIR" ] &&
+    [ -e "$_LLAMA_CPP_INSTALL_OLD" ]; then
+    mkdir -p "$LOCALAI_PREVIOUS_DIR/llama.cpp.d"
+    rm -rf -- "$LOCALAI_PREVIOUS_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND"
+    mv -- "$_LLAMA_CPP_INSTALL_OLD" "$LOCALAI_PREVIOUS_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND" ||
+      rm -rf -- "$_LLAMA_CPP_INSTALL_OLD"
+  else
+    rm -rf -- "$_LLAMA_CPP_INSTALL_OLD"
+  fi
   _LLAMA_CPP_INSTALL_OLD=""
   _LLAMA_CPP_INSTALL_DEST=""
   _llama_cpp_install_restore_traps
@@ -798,4 +808,242 @@ reconnect_shell_on_path() {
   echo "Switching this terminal to a fresh shell so 'localai' works right now..."
   echo
   exec "$SHELL" -i < /dev/tty
+}
+
+###############################################################################
+# Update rollback point and installation manifest.
+#
+# `localai update` records the components it replaces in a pending snapshot
+# ($BIN_DIR/$LOCALAI_PREVIOUS_SUBDIR.pending). If the update fails at any
+# point -- including the restarted service failing its readiness check -- the
+# snapshot is swapped back in automatically. On success it becomes the
+# rollback point ($BIN_DIR/$LOCALAI_PREVIOUS_SUBDIR) that `localai rollback`
+# swaps with the live install. Swapping (rather than copying) keeps the step
+# cheap and makes a second rollback return to the newer version.
+#
+# Only engine components are tracked: llama.cpp backend slots, the managed
+# llama-swap binary, and the small state files that describe them. Models,
+# models.d overrides, API keys and the port are never touched.
+###############################################################################
+
+localai_previous_dir() {
+  printf '%s/%s\n' "$BIN_DIR" "${LOCALAI_PREVIOUS_SUBDIR:-previous}"
+}
+
+# localai_snapshot_state_files: conf files that travel with the engine.
+# The active-backend marker is deliberately not included: a rollback restores
+# versions, not a backend choice made with `localai switch` since.
+localai_snapshot_state_files() {
+  printf '%s\n' "${LOCALAI_CUDA_META_FILE:-}" "${LOCALAI_MANIFEST_FILE:-}" |
+    sed '/^$/d'
+}
+
+# localai_describe_install: one human-readable line per installed component.
+localai_describe_install() {
+  local dir name tag active=""
+
+  [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ] && active="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+  if [ -d "$BIN_DIR/llama.cpp.d" ]; then
+    while IFS= read -r dir; do
+      name="$(basename "$dir")"
+      tag="$(llama_cpp_display_tag "$name" 2>/dev/null || true)"
+      printf 'llama.cpp %s: %s%s\n' "$name" "${tag:-unknown}" "$([ "$name" = "$active" ] && printf ' (active)')"
+    done < <(find "$BIN_DIR/llama.cpp.d" -mindepth 1 -maxdepth 1 -type d ! -name '.*' | sort)
+  fi
+  tag="$(llama_swap_version "${LLAMA_SWAP_INSTALL_PATH:-}" 2>/dev/null || true)"
+  printf 'llama-swap: %s\n' "${tag:-unknown}"
+}
+
+# localai_snapshot_begin DIR: start a fresh snapshot of the current state
+# files and description. Backend slots are moved in later by
+# install_llama_cpp_release_dir (via LOCALAI_PREVIOUS_DIR), and llama-swap by
+# localai_snapshot_add_file, so nothing large is copied here.
+localai_snapshot_begin() {
+  local snap="$1" name
+
+  rm -rf -- "$snap"
+  mkdir -p "$snap/conf" || return 1
+  while IFS= read -r name; do
+    [ -f "$CONF_DIR/$name" ] && cp -p -- "$CONF_DIR/$name" "$snap/conf/$name"
+  done < <(localai_snapshot_state_files)
+  {
+    printf 'created=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    localai_describe_install | sed 's/^/component=/'
+  } > "$snap/info"
+}
+
+# localai_snapshot_add_file DIR NAME PATH: keep a copy of one file (e.g. the
+# llama-swap binary) before it is replaced.
+localai_snapshot_add_file() {
+  local snap="$1" name="$2" path="$3"
+
+  [ -n "$snap" ] && [ -d "$snap" ] || return 0
+  [ -f "$path" ] || return 0
+  cp -p -- "$path" "$snap/$name"
+}
+
+# _localai_swap_path A B: exchange two paths. When B does not exist, A simply
+# moves to B. Restores B if the exchange fails halfway.
+_localai_swap_path() {
+  local a="$1" b="$2" tmp
+
+  tmp="$a.swap.$$"
+  rm -rf -- "$tmp"
+  if [ -e "$b" ] || [ -L "$b" ]; then
+    mv -- "$b" "$tmp" || return 1
+  fi
+  mkdir -p "$(dirname "$b")"
+  if ! mv -- "$a" "$b"; then
+    [ -e "$tmp" ] && mv -- "$tmp" "$b"
+    return 1
+  fi
+  if [ -e "$tmp" ]; then
+    mv -- "$tmp" "$a" || return 1
+  fi
+}
+
+# localai_snapshot_swap DIR: exchange the snapshot with the live install and
+# re-activate the restored backend. Afterwards DIR describes the state that
+# was live before the swap.
+localai_snapshot_swap() {
+  local snap="$1" path name status=0 before
+
+  [ -d "$snap" ] || return 1
+  before="$(localai_describe_install | sed 's/^/component=/')"
+
+  if [ -d "$snap/llama.cpp.d" ]; then
+    while IFS= read -r path; do
+      name="$(basename "$path")"
+      _localai_swap_path "$path" "$BIN_DIR/llama.cpp.d/$name" || status=1
+    done < <(find "$snap/llama.cpp.d" -mindepth 1 -maxdepth 1 -type d ! -name '*.swap.*' | sort)
+  fi
+  if [ -f "$snap/llama-swap" ]; then
+    _localai_swap_path "$snap/llama-swap" "$LLAMA_SWAP_INSTALL_PATH" || status=1
+  fi
+  while IFS= read -r name; do
+    [ -f "$snap/conf/$name" ] || continue
+    _localai_swap_path "$snap/conf/$name" "$CONF_DIR/$name" || status=1
+  done < <(localai_snapshot_state_files)
+
+  if [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ]; then
+    LLAMA_CPP_BACKEND="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+    if [ -d "$BIN_DIR/llama.cpp.d/$LLAMA_CPP_BACKEND" ]; then
+      activate_llama_cpp_backend || status=1
+    fi
+  fi
+
+  # A snapshot taken before installs had a manifest has no record of its
+  # own. Keep the newer record with the snapshot (so swapping back restores
+  # it) and describe the restored versions from what is actually installed.
+  name="${LOCALAI_MANIFEST_FILE:-}"
+  if [ -n "$name" ] && [ ! -f "$snap/conf/$name" ] && [ -f "$CONF_DIR/$name" ]; then
+    mkdir -p "$snap/conf"
+    if mv -- "$CONF_DIR/$name" "$snap/conf/$name"; then
+      LOCALAI_MANIFEST_FRESH=1 localai_write_manifest || true
+    fi
+  fi
+
+  {
+    printf 'created=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '%s\n' "$before"
+  } > "$snap/info"
+  return "$status"
+}
+
+# localai_snapshot_has_content DIR: true when DIR holds anything restorable
+# beyond its own description (a freshly started snapshot with no replaced
+# component is not worth keeping as a rollback point).
+localai_snapshot_has_content() {
+  local snap="$1"
+
+  [ -d "$snap" ] || return 1
+  [ -f "$snap/llama-swap" ] && return 0
+  [ -d "$snap/llama.cpp.d" ] &&
+    [ -n "$(find "$snap/llama.cpp.d" -mindepth 1 -maxdepth 1 -type d -print -quit)" ]
+}
+
+# localai_write_manifest: record what was actually installed, so a working
+# deployment can be audited, reported, or reproduced. Versions are resolved
+# dynamically at install/update time; this file is a record, never a pin.
+# Args: llama.cpp policy, resolved release tag, asset URL, asset digest,
+# llama-swap policy, resolved llama-swap tag, llama-swap asset URL.
+localai_write_manifest() {
+  local cpp_policy="${1:-}" cpp_release="${2:-}" cpp_url="${3:-}" cpp_digest="${4:-}"
+  local swap_policy="${5:-}" swap_release="${6:-}" swap_url="${7:-}"
+  local file tmp backend="" build swap_version os="" gpu="" previous_json='null'
+
+  [ -n "${LOCALAI_MANIFEST_FILE:-}" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  file="$CONF_DIR/$LOCALAI_MANIFEST_FILE"
+
+  # Keep the previous record's release/asset fields when the caller did not
+  # resolve new ones (for example a component that was already current).
+  # LOCALAI_MANIFEST_FRESH=1 ignores it: the record described other versions.
+  if [ "${LOCALAI_MANIFEST_FRESH:-0}" != "1" ] && [ -f "$file" ] &&
+    jq -e . "$file" >/dev/null 2>&1; then
+    previous_json="$(<"$file")"
+  fi
+
+  [ -f "$CONF_DIR/$LOCALAI_BACKEND_FILE" ] && backend="$(<"$CONF_DIR/$LOCALAI_BACKEND_FILE")"
+  build="$(llama_cpp_display_tag "$backend" 2>/dev/null || true)"
+  swap_version="$(llama_swap_version "${LLAMA_SWAP_INSTALL_PATH:-}" 2>/dev/null || true)"
+  if [ -r /etc/os-release ]; then
+    os="$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-${NAME:-}}")"
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    gpu="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | paste -sd', ' - || true)"
+  fi
+  [ "$backend" = "cuda" ] && [ -z "$cpp_url" ] && [ -n "$cpp_release" ] &&
+    cpp_url="${LLAMA_CPP_SOURCE_URL:-}@$cpp_release"
+
+  tmp="$file.tmp.$$"
+  if jq -n \
+    --argjson prev "$previous_json" \
+    --arg localai "${LOCALAI_VERSION:-}" \
+    --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg cpp_policy "$cpp_policy" \
+    --arg channel "${LLAMA_CPP_CHANNEL:-}" \
+    --arg cpp_release "$cpp_release" \
+    --arg build "$build" \
+    --arg backend "$backend" \
+    --arg cpp_url "$cpp_url" \
+    --arg cpp_digest "$cpp_digest" \
+    --arg swap_policy "$swap_policy" \
+    --arg swap_release "$swap_release" \
+    --arg swap_version "$swap_version" \
+    --arg swap_url "$swap_url" \
+    --arg os "$os" \
+    --arg kernel "$(uname -r 2>/dev/null || true)" \
+    --arg arch "$(uname -m 2>/dev/null || true)" \
+    --arg gpu "$gpu" '
+      def keep($new; $old): if $new == "" then ($old // "") else $new end;
+      # A previous llama.cpp record only describes this install if the
+      # backend is unchanged; a different backend means a different asset.
+      (if ($prev.llama_cpp.backend // "") == $backend then $prev.llama_cpp else {} end) as $pcpp |
+      {
+        schema: 1,
+        localai_version: $localai,
+        installed_at: $at,
+        llama_cpp: {
+          update_policy: keep($cpp_policy; $pcpp.update_policy),
+          channel: $channel,
+          resolved_release: keep($cpp_release; $pcpp.resolved_release),
+          installed_build: $build,
+          backend: $backend,
+          artifact: keep($cpp_url; $pcpp.artifact),
+          artifact_digest: keep($cpp_digest; $pcpp.artifact_digest)
+        },
+        llama_swap: {
+          update_policy: keep($swap_policy; $prev.llama_swap.update_policy),
+          resolved_release: keep($swap_release; $prev.llama_swap.resolved_release),
+          installed_version: $swap_version,
+          artifact: keep($swap_url; $prev.llama_swap.artifact)
+        },
+        environment: {os: $os, kernel: $kernel, architecture: $arch, gpu: $gpu}
+      }' > "$tmp"; then
+    mv -f -- "$tmp" "$file"
+  else
+    rm -f -- "$tmp"
+    return 1
+  fi
 }
