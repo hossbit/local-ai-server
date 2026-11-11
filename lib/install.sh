@@ -976,6 +976,14 @@ localai_write_manifest() {
   command -v jq >/dev/null 2>&1 || return 0
   file="$CONF_DIR/$LOCALAI_MANIFEST_FILE"
 
+  # The updater refreshes localai.conf while it runs, so the version it loaded
+  # at startup is the old one; the installed file names the current release.
+  local localai_version="${LOCALAI_VERSION:-}" installed_version
+  if installed_version="$(localai_conf_default_version "$CONF_DIR/localai.conf" 2>/dev/null)" &&
+    [ -n "$installed_version" ]; then
+    localai_version="$installed_version"
+  fi
+
   # Keep the previous record's release/asset fields when the caller did not
   # resolve new ones (for example a component that was already current).
   # LOCALAI_MANIFEST_FRESH=1 ignores it: the record described other versions.
@@ -999,7 +1007,7 @@ localai_write_manifest() {
   tmp="$file.tmp.$$"
   if jq -n \
     --argjson prev "$previous_json" \
-    --arg localai "${LOCALAI_VERSION:-}" \
+    --arg localai "$localai_version" \
     --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg cpp_policy "$cpp_policy" \
     --arg channel "${LLAMA_CPP_CHANNEL:-}" \
