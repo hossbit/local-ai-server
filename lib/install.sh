@@ -939,7 +939,7 @@ localai_snapshot_swap() {
   if [ -n "$name" ] && [ ! -f "$snap/conf/$name" ] && [ -f "$CONF_DIR/$name" ]; then
     mkdir -p "$snap/conf"
     if mv -- "$CONF_DIR/$name" "$snap/conf/$name"; then
-      LOCALAI_MANIFEST_FRESH=1 localai_write_manifest || true
+      LOCALAI_MANIFEST_FRESH=1 localai_write_manifest "" "" "" "" "" "" "" || true
     fi
   fi
 
