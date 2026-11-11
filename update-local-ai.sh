@@ -519,7 +519,9 @@ fi
 if ((${#NEED_CPP_FOR[@]} == 0 && NEED_SWAP == 0)); then
   log "Everything is already up to date"
   cleanup_bin_artifacts
-  [ -f "$CONF_DIR/$LOCALAI_MANIFEST_FILE" ] || write_update_manifest
+  # Refresh the record even when nothing changed: helper scripts (and so the
+  # LocalAI version) may have been updated above.
+  write_update_manifest
   print_current_versions
   exit 0
 fi
