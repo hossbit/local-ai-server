@@ -66,6 +66,7 @@ key_activate() {
   }
   # Clear the trap when it runs: a RETURN trap otherwise remains installed
   # after this function returns and fires on unrelated later returns.
+  # shellcheck disable=SC2329 # invoked by the RETURN trap below
   key_activate_cleanup() {
     # shellcheck disable=SC2317 # invoked by RETURN trap
     rm -f -- "${candidate:-}" "${candidate_keys:-}"
