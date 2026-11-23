@@ -31,7 +31,7 @@ backend_cmd() {
 }
 
 backend_list_cmd() {
-  local active="" backend dir size version
+  local active="" backend dir size version details
 
   [ "$#" -eq 0 ] || fail "usage: localai backend list"
 
@@ -43,16 +43,28 @@ backend_list_cmd() {
     return 0
   fi
 
-  printf '%-3s %-10s %-22s %s\n' "" "BACKEND" "VERSION" "SIZE"
+  # The build tag (what `localai version` and `localai update` compare) keeps
+  # the columns aligned; the raw "version: 1.0.0-dev (build N, commit ...)"
+  # line was wider than its column.
+  printf '%-3s %-10s %-12s %-6s %s\n' "" "BACKEND" "BUILD" "SIZE" "DETAILS"
   while IFS= read -r dir; do
     backend="$(basename "$dir")"
-    version="$(llama_cpp_backend_display_version "$backend")"
+    version="$(llama_cpp_display_tag "$backend")"
     size="$(du -sh "$dir" 2>/dev/null | awk '{print $1}')"
-    printf '%-3s %-10s %-22s %s\n' \
+    details=""
+    if [ "$backend" = "cuda" ] && command -v cuda_installed_method >/dev/null 2>&1; then
+      if [ "$(cuda_installed_method)" = "prebuilt" ]; then
+        details="prebuilt, CUDA $(cuda_meta_value cuda_runtime)"
+      else
+        details="source build"
+      fi
+    fi
+    printf '%-3s %-10s %-12s %-6s %s\n' \
       "$([ "$backend" = "$active" ] && printf '*' || printf '')" \
       "$backend" \
-      "${version#version: }" \
-      "${size:-?}"
+      "${version:-unknown}" \
+      "${size:-?}" \
+      "$details"
   done < <(find "$BIN_DIR/llama.cpp.d" -mindepth 1 -maxdepth 1 -type d | sort)
 }
 

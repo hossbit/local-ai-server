@@ -103,19 +103,23 @@ install_system_dependencies() {
     sudo_cmd=(sudo)
   fi
 
+  # Build tools are only needed to compile CUDA; the prebuilt build skips them.
+  local cuda_build=0
+  [ "$LLAMA_CPP_BACKEND" = "cuda" ] && ! cuda_prebuilt_selected && cuda_build=1
+
   if command -v apt-get >/dev/null 2>&1; then
     "${sudo_cmd[@]}" apt-get update
     read -r -a packages <<< "$LOCALAI_APT_PACKAGES"
-    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_APT_PACKAGES $LOCALAI_CUDA_APT_PACKAGES"
+    [ "$cuda_build" -eq 1 ] && read -r -a packages <<< "$LOCALAI_APT_PACKAGES $LOCALAI_CUDA_APT_PACKAGES"
     "${sudo_cmd[@]}" apt-get install -y "${packages[@]}"
   elif command -v dnf >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_DNF_PACKAGES"
-    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_DNF_PACKAGES $LOCALAI_CUDA_DNF_PACKAGES"
+    [ "$cuda_build" -eq 1 ] && read -r -a packages <<< "$LOCALAI_DNF_PACKAGES $LOCALAI_CUDA_DNF_PACKAGES"
     "${sudo_cmd[@]}" dnf install -y "${packages[@]}" ||
       fail "failed to install dnf packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   elif command -v yum >/dev/null 2>&1; then
     read -r -a packages <<< "$LOCALAI_YUM_PACKAGES"
-    [ "$LLAMA_CPP_BACKEND" = "cuda" ] && read -r -a packages <<< "$LOCALAI_YUM_PACKAGES $LOCALAI_CUDA_YUM_PACKAGES"
+    [ "$cuda_build" -eq 1 ] && read -r -a packages <<< "$LOCALAI_YUM_PACKAGES $LOCALAI_CUDA_YUM_PACKAGES"
     "${sudo_cmd[@]}" yum install -y "${packages[@]}" ||
       fail "failed to install yum packages. On RHEL 7/8, enable EPEL if jq is unavailable in the enabled repositories."
   else
@@ -135,7 +139,9 @@ resolve_llama_cpp_url() {
     LLAMA_CPP_JSON="$(github_api_get "$release_api")"
   fi
 
-  # cuda has no prebuilt release asset -- it's a source build pinned to this
+  # cuda is a source build by default, or upstream's prebuilt CUDA archive with
+  # LOCALAI_CUDA_BUILD=prebuilt (chosen later by driver version in
+  # cuda_prebuilt_install). Either way it is pinned to this
   # same resolved $LLAMA_CPP_VERSION tag (a real git tag either way, stable
   # or bleeding-edge), so cuda and the other backends never silently drift to
   # different llama.cpp revisions.
@@ -423,8 +429,9 @@ fi
 INSTALL_COMPLETE=1
 
 if [ "$LLAMA_CPP_BACKEND" = "cuda" ]; then
-  MANIFEST_CPP_URL=""
-  MANIFEST_CPP_DIGEST=""
+  # Empty for a source build (the manifest records the git source instead).
+  MANIFEST_CPP_URL="${CUDA_PREBUILT_URL:-}"
+  MANIFEST_CPP_DIGEST="${CUDA_PREBUILT_DIGEST:-}"
 else
   MANIFEST_CPP_URL="$LLAMA_CPP_URL"
   MANIFEST_CPP_DIGEST="$(release_asset_digest "$LLAMA_CPP_BINARY_JSON" "$LLAMA_CPP_URL")"
@@ -479,10 +486,10 @@ echo "  Uninstall:"
 echo "    localai uninstall"
 echo
 echo "  Enable auto-start on login:"
-echo "    systemctl --user enable localai"
+echo "    systemctl --user enable ${LOCALAI_SERVICE_NAME%.service}"
 echo
 echo "  Disable auto-start:"
-echo "    systemctl --user disable localai"
+echo "    systemctl --user disable ${LOCALAI_SERVICE_NAME%.service}"
 echo
 echo "Helper scripts:"
 echo

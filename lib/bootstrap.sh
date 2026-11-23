@@ -8,6 +8,19 @@
 # The caller must set SCRIPT_DIR before sourcing this file.
 
 if [ -f "$SCRIPT_DIR/../conf/localai.conf" ]; then
+  # localai.conf picks CPU-safe runtime defaults (context, parallel slots,
+  # GPU layers, ...) when LLAMA_CPP_BACKEND is cpu. Installed scripts are not
+  # told the backend, so without this every CPU install silently ran with the
+  # GPU profile. An explicitly requested backend (switch, backend install,
+  # environment) still wins.
+  if [ -z "${LLAMA_CPP_BACKEND:-}" ] &&
+    [ -f "$SCRIPT_DIR/../conf/${LOCALAI_BACKEND_FILE:-llama-cpp-backend}" ]; then
+    _localai_installed_backend="$(head -n1 "$SCRIPT_DIR/../conf/${LOCALAI_BACKEND_FILE:-llama-cpp-backend}" 2>/dev/null || true)"
+    case "$_localai_installed_backend" in
+      cpu|vulkan|rocm|openvino|sycl-fp16|sycl-fp32|cuda) LLAMA_CPP_BACKEND="$_localai_installed_backend" ;;
+    esac
+    unset _localai_installed_backend
+  fi
   # shellcheck source=/dev/null
   . "$SCRIPT_DIR/../conf/localai.conf"
 elif [ -f "$SCRIPT_DIR/localai.conf" ]; then

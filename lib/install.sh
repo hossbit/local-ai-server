@@ -237,6 +237,9 @@ select_llama_cpp_asset_regex() {
   fi
 
   LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
+  if command -v cuda_validate_build_mode >/dev/null 2>&1; then
+    cuda_validate_build_mode
+  fi
 
   # auto: CUDA when a full CUDA build environment is usable, else Vulkan when
   # actually usable, else CPU. Resolved once here so every caller downstream
@@ -357,7 +360,10 @@ _llama_cpp_format_display_version() {
   local backend="$1" raw="$2"
   local hash revision
 
-  if [ "$backend" = "cuda" ] && command -v cuda_installed_revision >/dev/null 2>&1; then
+  # A prebuilt CUDA binary reports its own build correctly; only a shallow
+  # source build needs the recorded revision substituted.
+  if [ "$backend" = "cuda" ] && command -v cuda_installed_revision >/dev/null 2>&1 &&
+    { ! command -v cuda_installed_method >/dev/null 2>&1 || [ "$(cuda_installed_method)" != "prebuilt" ]; }; then
     revision="$(cuda_installed_revision)"
     if [ -n "$revision" ]; then
       hash="$(printf '%s\n' "$raw" | sed -n 's/.*(\(.*\)).*/\1/p')"
@@ -1001,8 +1007,13 @@ localai_write_manifest() {
   if command -v nvidia-smi >/dev/null 2>&1; then
     gpu="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | paste -sd', ' - || true)"
   fi
-  [ "$backend" = "cuda" ] && [ -z "$cpp_url" ] && [ -n "$cpp_release" ] &&
+  # A source-built cuda backend has no release asset; record the git source.
+  # A prebuilt one passes its asset URL, or keeps the previous record.
+  if [ "$backend" = "cuda" ] && [ -z "$cpp_url" ] && [ -n "$cpp_release" ] &&
+    { ! command -v cuda_installed_method >/dev/null 2>&1 ||
+      [ "$(cuda_installed_method)" != "prebuilt" ]; }; then
     cpp_url="${LLAMA_CPP_SOURCE_URL:-}@$cpp_release"
+  fi
 
   tmp="$file.tmp.$$"
   if jq -n \

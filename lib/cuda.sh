@@ -153,11 +153,42 @@ vulkan_is_usable() {
 # Backend resolution
 ###############################################################################
 
+# LOCALAI_CUDA_BUILD selects how the cuda backend is installed: `source`
+# compiles llama.cpp against the local CUDA Toolkit; `prebuilt` downloads
+# upstream's Ubuntu CUDA archive plus its CUDA runtime libraries and needs only
+# a working NVIDIA driver. Empty (the default) keeps the method the installed
+# cuda slot was made with, and means `source` for a new install -- so a choice
+# passed only as an environment variable at install time survives later
+# `localai update` runs, which do not see that variable.
+cuda_effective_build_mode() {
+  if [ -n "${LOCALAI_CUDA_BUILD:-}" ]; then
+    printf '%s\n' "$LOCALAI_CUDA_BUILD"
+  elif [ -n "${BIN_DIR:-}" ] && [ -x "$BIN_DIR/llama.cpp.d/cuda/llama-server" ] &&
+    [ "$(cuda_meta_value method)" = "prebuilt" ]; then
+    printf 'prebuilt\n'
+  else
+    printf 'source\n'
+  fi
+}
+
+cuda_prebuilt_selected() {
+  [ "$(cuda_effective_build_mode)" = "prebuilt" ]
+}
+
+cuda_validate_build_mode() {
+  case "${LOCALAI_CUDA_BUILD:-}" in
+    ''|source|prebuilt) return 0 ;;
+  esac
+  fail "invalid LOCALAI_CUDA_BUILD: ${LOCALAI_CUDA_BUILD}. Use source or prebuilt."
+}
+
 # auto: CUDA when fully usable, else Vulkan when actually usable, else CPU.
 # Never redirects AMD/Intel systems to CUDA -- this only ever returns cuda,
-# vulkan, or cpu.
+# vulkan, or cpu. With LOCALAI_CUDA_BUILD=prebuilt a working driver is enough.
 cuda_resolve_auto_backend() {
   if cuda_environment_status >/dev/null 2>&1; then
+    printf 'cuda\n'
+  elif cuda_prebuilt_selected && cuda_has_working_driver; then
     printf 'cuda\n'
   elif vulkan_is_usable; then
     printf 'vulkan\n'
@@ -198,6 +229,10 @@ cuda_resolve_explicit_backend() {
   if ! cuda_has_working_driver; then
     reason="no working NVIDIA GPU/driver was found (nvidia-smi)"
     hint="If you do have an NVIDIA GPU, install or update its driver, then retry."
+  elif cuda_prebuilt_selected; then
+    cuda_log "NVIDIA driver detected: $(cuda_driver_version) (prebuilt CUDA build; no CUDA Toolkit needed)"
+    printf 'cuda\n'
+    return 0
   elif ! nvcc="$(cuda_find_nvcc)"; then
     reason="an NVIDIA GPU and driver were found, but nvcc was not found"
     hint="nvidia-smi reporting a CUDA version is not proof the CUDA Toolkit is installed.
@@ -205,7 +240,10 @@ cuda_resolve_explicit_backend() {
 Fix:
   Already have a CUDA Toolkit? Point at it: LOCALAI_NVCC=/path/to/nvcc
 
-Or, install one:
+Or, use upstream's prebuilt CUDA build (needs only the driver):
+  LOCALAI_CUDA_BUILD=prebuilt
+
+Or, install a CUDA Toolkit:
 $(cuda_toolkit_install_hint)"
   fi
 
@@ -422,6 +460,230 @@ cuda_installed_revision() {
   awk -F= '$1 == "revision" {print $2; exit}' "$CONF_DIR/$LOCALAI_CUDA_META_FILE" 2>/dev/null
 }
 
+# cuda_meta_value KEY: one field of the cuda metadata file. Files written
+# before LOCALAI_CUDA_BUILD existed (and every source build, whose cache key
+# must stay byte-for-byte unchanged) carry no `method` line.
+cuda_meta_value() {
+  [ -n "${CONF_DIR:-}" ] && [ -n "${LOCALAI_CUDA_META_FILE:-}" ] || return 0
+  awk -F= -v key="$1" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' \
+    "$CONF_DIR/$LOCALAI_CUDA_META_FILE" 2>/dev/null
+}
+
+cuda_installed_method() {
+  local method
+  method="$(cuda_meta_value method)"
+  printf '%s\n' "${method:-source}"
+}
+
+# cuda_installed_revision_for_mode: like cuda_installed_revision, but empty
+# when the installed cuda slot was made by the other LOCALAI_CUDA_BUILD
+# method, so `localai update` reinstalls it the requested way.
+cuda_installed_revision_for_mode() {
+  [ "$(cuda_installed_method)" = "$(cuda_effective_build_mode)" ] || return 0
+  cuda_installed_revision
+}
+
+###############################################################################
+# Prebuilt CUDA (LOCALAI_CUDA_BUILD=prebuilt). Upstream publishes
+# llama-<tag>-bin-ubuntu-cuda-<X.Y>-x64.tar.gz plus a matching
+# cudart-llama-<tag>-bin-ubuntu-cuda-<X.Y>-x64.tar.gz with libcudart/libcublas.
+# Each CUDA line needs a minimum driver; the newest line the driver supports
+# is tried first, and a build is installed only after it reports a CUDA device.
+###############################################################################
+
+# cuda_prebuilt_min_driver X.Y: minimum NVIDIA driver major version for a
+# prebuilt CUDA X.Y build (the driver each CUDA major line shipped with for
+# the published 12.8 and 13.x builds). Unknown lines need an explicit
+# LOCALAI_CUDA_PREBUILT_VERSION.
+cuda_prebuilt_min_driver() {
+  case "${1%%.*}" in
+    12) printf '570\n' ;;
+    13) printf '580\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+# cuda_prebuilt_versions JSON: CUDA versions with a Linux x64 archive in the
+# release, newest first.
+cuda_prebuilt_versions() {
+  jq -r '.assets[].name' <<<"$1" 2>/dev/null |
+    sed -nE 's/^llama-.*-bin-ubuntu-cuda-([0-9]+\.[0-9]+)-x64\.tar\.gz$/\1/p' |
+    sort -Vru
+}
+
+# cuda_prebuilt_candidates JSON: versions to try, newest first. An explicit
+# LOCALAI_CUDA_PREBUILT_VERSION skips the driver check (verification still runs).
+cuda_prebuilt_candidates() {
+  local json="$1" version min driver_major
+
+  if [ -n "${LOCALAI_CUDA_PREBUILT_VERSION:-}" ]; then
+    cuda_prebuilt_versions "$json" | grep -Fx -- "$LOCALAI_CUDA_PREBUILT_VERSION" || true
+    return 0
+  fi
+
+  driver_major="$(cuda_driver_version)"
+  driver_major="${driver_major%%.*}"
+  [[ "$driver_major" =~ ^[0-9]+$ ]] || return 0
+  while IFS= read -r version; do
+    min="$(cuda_prebuilt_min_driver "$version")" || continue
+    [ "$driver_major" -ge "$min" ] && printf '%s\n' "$version"
+  done < <(cuda_prebuilt_versions "$json")
+}
+
+cuda_prebuilt_asset_re() {
+  local kind="$1" version="$2"
+  printf '^%s-.*-bin-ubuntu-cuda-%s-x64\\.tar\\.gz$\n' "$kind" "${version//./\\.}"
+}
+
+# cuda_prebuilt_runs DIR: true when the staged llama-server runs and lists a
+# CUDA/NVIDIA device (the non-fatal form of cuda_verify_build).
+cuda_prebuilt_runs() {
+  local dir="$1" output
+  output="$(LD_LIBRARY_PATH="$dir:${LD_LIBRARY_PATH:-}" "$dir/llama-server" --list-devices 2>&1)" || return 1
+  case "$output" in
+    *CUDA*NVIDIA*|*NVIDIA*CUDA*) return 0 ;;
+  esac
+  return 1
+}
+
+# cuda_prebuilt_reuse_runtime VERSION DEST: copies the CUDA runtime libraries
+# from the installed prebuilt cuda slot when it uses the same CUDA version, so
+# each update downloads only the ~210 MB llama.cpp archive instead of also
+# the ~400-570 MB runtime archive. Fails when there is nothing to reuse.
+cuda_prebuilt_reuse_runtime() {
+  local version="$1" dest="$2" slot="$BIN_DIR/llama.cpp.d/cuda" files file
+
+  [ -x "$slot/llama-server" ] || return 1
+  [ "$(cuda_installed_method)" = "prebuilt" ] || return 1
+  [ "$(cuda_meta_value cuda_runtime)" = "$version" ] || return 1
+  files="$(cuda_meta_value cudart_files)"
+  [ -n "$files" ] || return 1
+  for file in $files; do
+    [[ "$file" =~ ^[A-Za-z0-9._+-]+$ ]] && [ -e "$slot/$file" ] || return 1
+  done
+  for file in $files; do
+    cp -a -- "$slot/$file" "$dest/$file" || return 1
+  done
+  printf '%s\n' "$files"
+}
+
+# cuda_prebuilt_fetch_runtime JSON VERSION WORK DEST: downloads and extracts
+# the matching cudart archive into DEST; prints the library file names.
+cuda_prebuilt_fetch_runtime() {
+  local json="$1" version="$2" work="$3" dest="$4" url file
+
+  url="$(release_asset_url "$json" "$(cuda_prebuilt_asset_re cudart-llama "$version")")"
+  if [ -z "$url" ]; then
+    echo "Warning: no CUDA $version runtime archive in this release; relying on system CUDA libraries." >&2
+    return 0
+  fi
+  cuda_log "Downloading CUDA $version runtime libraries (only needed once per CUDA version)"
+  download_verified_asset "$json" "$url" "$work/cudart.tar.gz" "CUDA $version runtime"
+  mkdir -p "$work/cudart"
+  tar -xzf "$work/cudart.tar.gz" -C "$work/cudart" || fail "failed to extract the CUDA $version runtime"
+  rm -f -- "$work/cudart.tar.gz"
+  while IFS= read -r file; do
+    cp -a -- "$file" "$dest/" || return 1
+    basename -- "$file"
+  done < <(find "$work/cudart" -name 'lib*.so*' \( -type f -o -type l \) | sort)
+}
+
+cuda_prebuilt_install() {
+  local tmp_dir="$1"
+  local json version url digest work server release_dir files meta_file
+  local -a versions=()
+
+  meta_file="$CONF_DIR/$LOCALAI_CUDA_META_FILE"
+  cuda_has_working_driver || {
+    echo "Error: the prebuilt CUDA build needs a working NVIDIA driver (nvidia-smi)." >&2
+    return 1
+  }
+  json="${LLAMA_CPP_BINARY_JSON:-}"
+  [ -n "$json" ] || json="$(resolve_llama_cpp_binary_json "$LLAMA_CPP_JSON")"
+  mapfile -t versions < <(cuda_prebuilt_candidates "$json")
+
+  if [ "${#versions[@]}" -eq 0 ]; then
+    cat >&2 <<EOF
+Error: llama.cpp $LLAMA_CPP_VERSION has no prebuilt CUDA build for NVIDIA driver $(cuda_driver_version).
+Available CUDA builds: $(cuda_prebuilt_versions "$json" | paste -sd' ' -)
+
+Fix:
+  Update the NVIDIA driver (CUDA 12.x builds need 570+, CUDA 13.x need 580+).
+
+Or:
+  Force one build: LOCALAI_CUDA_PREBUILT_VERSION=12.8
+  Build from source with a CUDA Toolkit: LOCALAI_CUDA_BUILD=source
+EOF
+    return 1
+  fi
+
+  # Same release, same CUDA line, already installed the prebuilt way.
+  if [ -x "$BIN_DIR/llama.cpp.d/cuda/llama-server" ] &&
+    [ "$(cuda_installed_method)" = "prebuilt" ] &&
+    [ "$(cuda_meta_value revision)" = "$LLAMA_CPP_VERSION" ] &&
+    [ "$(cuda_meta_value cuda_runtime)" = "${versions[0]}" ]; then
+    cuda_log "Prebuilt CUDA ${versions[0]} build for $LLAMA_CPP_VERSION already installed"
+    CUDA_PREBUILT_URL="$(cuda_meta_value asset_url)"
+    CUDA_PREBUILT_DIGEST="$(cuda_meta_value asset_digest)"
+    activate_llama_cpp_backend
+    return 0
+  fi
+
+  for version in "${versions[@]}"; do
+    url="$(release_asset_url "$json" "$(cuda_prebuilt_asset_re llama "$version")")"
+    [ -n "$url" ] || continue
+    work="$tmp_dir/cuda-prebuilt-$version"
+    rm -rf -- "$work"
+    mkdir -p "$work/llama"
+
+    cuda_log "Downloading prebuilt llama.cpp $LLAMA_CPP_VERSION (CUDA $version)"
+    download_verified_asset "$json" "$url" "$work/llama.tar.gz" "llama.cpp (CUDA $version)"
+    tar -xzf "$work/llama.tar.gz" -C "$work/llama" || fail "failed to extract llama.cpp (CUDA $version)"
+    rm -f -- "$work/llama.tar.gz"
+    server="$(find "$work/llama" -type f -name llama-server -print -quit)"
+    [ -n "$server" ] || fail "llama-server was not found in the CUDA $version archive"
+    release_dir="$(dirname "$server")"
+
+    if files="$(cuda_prebuilt_reuse_runtime "$version" "$release_dir")"; then
+      cuda_log "Reusing the installed CUDA $version runtime libraries"
+    else
+      files="$(cuda_prebuilt_fetch_runtime "$json" "$version" "$work" "$release_dir")" || return 1
+    fi
+
+    cuda_log "Verifying prebuilt CUDA $version build"
+    if cuda_prebuilt_runs "$release_dir"; then
+      digest="$(release_asset_digest "$json" "$url")"
+      install_llama_cpp_release_dir "$release_dir" "$tmp_dir"
+      {
+        printf 'revision=%s\n' "$LLAMA_CPP_VERSION"
+        printf 'method=prebuilt\n'
+        printf 'cuda_runtime=%s\n' "$version"
+        printf 'asset_url=%s\n' "$url"
+        printf 'asset_digest=%s\n' "$digest"
+        printf 'cudart_files=%s\n' "$(printf '%s\n' "$files" | paste -sd' ' -)"
+        printf 'built_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      } > "$meta_file"
+      CUDA_PREBUILT_URL="$url"
+      CUDA_PREBUILT_DIGEST="$digest"
+      return 0
+    fi
+    echo "Warning: the prebuilt CUDA $version build did not detect a CUDA device on this system." >&2
+    rm -rf -- "$work"
+  done
+
+  cat >&2 <<EOF
+Error: no prebuilt CUDA build of llama.cpp $LLAMA_CPP_VERSION ran on this system
+(driver $(cuda_driver_version)). The previously installed backend was not changed.
+
+Fix:
+  Update the NVIDIA driver, then retry.
+
+Or:
+  Build from source with a CUDA Toolkit: LOCALAI_CUDA_BUILD=source
+EOF
+  return 1
+}
+
 ###############################################################################
 # Orchestration: build, verify, and install (or skip if already cached).
 # Uses BIN_DIR/CONF_DIR/LLAMA_CPP_BACKEND/LLAMA_CPP_VERSION globals and
@@ -431,6 +693,11 @@ cuda_installed_revision() {
 cuda_build_and_install() {
   local tmp_dir="$1"
   local nvcc host_compiler architectures meta_file build_dir release_dir cache_key
+
+  if cuda_prebuilt_selected; then
+    cuda_prebuilt_install "$tmp_dir"
+    return
+  fi
 
   nvcc="$(cuda_find_nvcc)" || fail "CUDA build requested but nvcc is no longer available"
   architectures="$(cuda_resolve_architectures "${LOCALAI_CUDA_ARCHITECTURES:-auto}")" ||

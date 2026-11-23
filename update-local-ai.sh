@@ -281,7 +281,8 @@ update_llama_cpp_backend() {
   fi
 
   if [ "$backend" = "cuda" ]; then
-    current_version="$(cuda_installed_revision)"
+    # Empty when LOCALAI_CUDA_BUILD changed since the slot was installed.
+    current_version="$(cuda_installed_revision_for_mode)"
     compare_tag="$LLAMA_CPP_TAG"
   else
     current_version="$(llama_cpp_backend_version "$backend")"
@@ -296,7 +297,7 @@ update_llama_cpp_backend() {
   if [ "$backend" = "cuda" ]; then
     LLAMA_CPP_VERSION="$LLAMA_CPP_TAG"
     cuda_build_and_install "$TMP_DIR" ||
-      fail "CUDA build failed for backend cuda. See the error above."
+      fail "CUDA install failed for backend cuda. See the error above."
   else
     mkdir -p "$TMP_DIR/llama.cpp-$backend"
     download_verified_asset "$LLAMA_CPP_BINARY_JSON" "$url" "$TMP_DIR/llama.cpp-$backend.tar.gz" "llama.cpp ($backend)"
@@ -460,7 +461,7 @@ printf 'llama-swap: installed=%s latest=%s\n' "${CURRENT_LLAMA_SWAP:-none}" "$LL
 NEED_CPP_FOR=()
 for BACKEND in "${BACKENDS_TO_UPDATE[@]}"; do
   if [ "$BACKEND" = "cuda" ]; then
-    CURRENT_VERSION="$(cuda_installed_revision)"
+    CURRENT_VERSION="$(cuda_installed_revision_for_mode)"
     COMPARE_TAG="$LLAMA_CPP_TAG"
   else
     CURRENT_VERSION="$(llama_cpp_backend_version "$BACKEND")"
@@ -489,6 +490,9 @@ write_update_manifest() {
 
   if [ "$ORIGINAL_BACKEND" = "cuda" ]; then
     release="$LLAMA_CPP_TAG"
+    # Set only when this run installed a prebuilt CUDA build.
+    url="${CUDA_PREBUILT_URL:-}"
+    digest="${CUDA_PREBUILT_DIGEST:-}"
   else
     release="$LLAMA_CPP_BINARY_TAG"
     if [ -n "$ACTIVE_ASSET_RE" ]; then

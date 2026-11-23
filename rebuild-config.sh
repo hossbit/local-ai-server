@@ -484,6 +484,8 @@ models:
 CFG
 
 MODEL_COUNT=0
+# alias -> owning model ID, to drop aliases llama-swap would reject at startup.
+declare -A SEEN_ALIASES=()
 while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   [ -n "$NAME" ] || continue
   case "$NAME$MODEL_REL" in
@@ -886,8 +888,11 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
     ttl: $TTL"
 
   if [ -n "$ALIASES" ]; then
-    EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
-    aliases:"
+    # llama-swap (v274+) refuses to start the whole service when an alias
+    # equals its own model ID, and every version rejects an alias used twice.
+    # Skip those with a warning so one bad override cannot take every model
+    # offline; the first model (in discovery order) keeps a shared alias.
+    ALIAS_YAML=""
     IFS=',' read -r -a ALIAS_ARRAY <<< "$ALIASES"
     for ALIAS in "${ALIAS_ARRAY[@]}"; do
       ALIAS="$(trim_ws "$ALIAS")"
@@ -898,9 +903,24 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
           continue
           ;;
       esac
-      EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
+      if [ "$ALIAS" = "$NAME" ]; then
+        echo "Warning: skipping alias for model $NAME: an alias must differ from its own model ID" >&2
+        continue
+      fi
+      if [ -n "${SEEN_ALIASES[$ALIAS]+set}" ]; then
+        if [ "${SEEN_ALIASES[$ALIAS]}" = "$NAME" ]; then
+          echo "Warning: skipping repeated alias for model $NAME: $ALIAS" >&2
+        else
+          echo "Warning: skipping alias $ALIAS for model $NAME: already used by model ${SEEN_ALIASES[$ALIAS]}" >&2
+        fi
+        continue
+      fi
+      SEEN_ALIASES[$ALIAS]="$NAME"
+      ALIAS_YAML="$ALIAS_YAML
       - \"$ALIAS\""
     done
+    [ -z "$ALIAS_YAML" ] || EXTRA_MODEL_YAML="$EXTRA_MODEL_YAML
+    aliases:$ALIAS_YAML"
   fi
 
   if [ -n "$SET_TEMPERATURE" ] || [ -n "$SET_TOP_P" ]; then

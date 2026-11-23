@@ -64,9 +64,25 @@ reload_cmd() {
     return 0
   fi
 
-  echo "Model changes detected:"
-  reload_report_model_diff "$CONFIG" "$candidate"
+  local model_diff
+  model_diff="$(reload_report_model_diff "$CONFIG" "$candidate")"
+  if [ -n "$model_diff" ]; then
+    echo "Model changes detected:"
+    printf '%s\n' "$model_diff"
+  elif [ "$config_same" -eq 0 ]; then
+    echo "Configuration changes detected (model settings or LocalAI settings; no models added or removed)."
+  else
+    echo "API key changes detected."
+  fi
   echo
+  # A stopped service stays stopped: write the new configuration so the next
+  # start uses it, instead of `restart` starting it unasked.
+  if ! localai_service_running; then
+    "$rebuild" >/dev/null
+    echo "LocalAI is not running; the configuration was updated."
+    echo "Start it with: localai start"
+    return 0
+  fi
   service_cmd restart
 }
 
