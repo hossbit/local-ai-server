@@ -143,29 +143,15 @@ See the wiki's [Backend Selection](https://github.com/hossbit/comai-linux-assist
 page for CUDA prerequisites (`nvcc` vs. `nvidia-smi`), choosing a backend
 during the initial install, tuning overrides, and Fedora/RHEL notes.
 
-### CUDA without the CUDA Toolkit
-
-No CUDA Toolkit, or don't want to compile? Use llama.cpp's own prebuilt
-CUDA build instead. It needs only a working NVIDIA driver: 570 or newer for
-CUDA 12.x builds, 580 or newer for CUDA 13.x.
+No CUDA Toolkit? Use llama.cpp's prebuilt CUDA build; it needs only the
+NVIDIA driver:
 
 ```bash
 curl -fsSL https://hossbit.github.io/localai/install.sh | LOCALAI_CUDA_BUILD=prebuilt LLAMA_CPP_BACKEND=cuda bash
 ```
 
-On an existing install, set `LOCALAI_CUDA_BUILD=prebuilt` in
-`~/ai/conf/localai.conf`, run `localai switch cuda` if CUDA is not active yet,
-then run `localai update`. With this setting, `auto` also chooses CUDA whenever
-the driver works. Updates keep the method your CUDA backend was installed with;
-set `LOCALAI_CUDA_BUILD=source` to go back to compiling.
-
-LocalAI tries the newest CUDA version your driver supports and installs it
-only after it detects your GPU. If that fails, it tries the next one. The
-first install downloads about 600-800 MB, because the CUDA runtime libraries
-are a separate archive. Later updates download only the 210 MB llama.cpp
-archive until the CUDA version changes. `LOCALAI_CUDA_PREBUILT_VERSION=12.8`
-forces one version. The source build stays the default because it is
-compiled for your exact GPU and toolkit.
+See [Prebuilt CUDA](https://github.com/hossbit/comai-linux-assistant-wiki/blob/main/Local-AI-Service.md#prebuilt-cuda-no-cuda-toolkit)
+for driver versions and existing installs.
 
 ## Add a model
 
