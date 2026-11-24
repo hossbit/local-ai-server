@@ -116,4 +116,4 @@ if ! pid_file_matches_process "$PID_FILE" "$PID_START_FILE"; then
 fi
 
 echo "LocalAI started at http://${LOCALAI_LISTEN_HOST}:${PORT} (PID $PID)"
-echo "Use 'localai models' to see model names, and 'localai check' to verify the API."
+echo "Use 'localai models' to see model names, and 'localai doctor' to verify the install."

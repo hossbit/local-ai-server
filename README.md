@@ -145,8 +145,8 @@ installed before:
 
 ```bash
 localai backend install cuda   # build CUDA without switching to it yet
-localai switch cuda            # switch to it (installs first if needed)
-localai switch vulkan          # switch back -- instant
+localai backend use cuda       # switch to it (installs first if needed)
+localai backend use vulkan     # switch back -- instant
 localai backend list           # see what's installed and which is active
 ```
 
@@ -172,7 +172,19 @@ LocalAI discovers GGUF files from:
 ~/ai/models
 ```
 
-Download a `.gguf` model from a source such as Hugging Face, then put it in that
+Let LocalAI download a model, or link a file you already have (nothing is
+copied):
+
+```bash
+localai add Qwen/Qwen2.5-0.5B-Instruct-GGUF               # list the files
+localai add Qwen/Qwen2.5-0.5B-Instruct-GGUF:q4_k_m        # download one
+localai add /data/models/MODEL.gguf                       # link a local file
+```
+
+Downloads are checked against their checksum and resume when interrupted; set
+`HF_TOKEN` for gated repositories.
+
+Or do it by hand: Download a `.gguf` model from a source such as Hugging Face, then put it in that
 directory. After adding or removing models, reload LocalAI so it regenerates
 the config and restarts only if it changed, then list the detected models:
 
@@ -277,7 +289,7 @@ Start LocalAI:
 
 ```bash
 localai start
-localai check
+localai doctor
 ```
 
 The API is available at `http://127.0.0.1:$(cat ~/ai/conf/port)/v1`.
@@ -361,7 +373,9 @@ Most users only need these:
 | `localai reload` | Rescan models and restart only if `config.yaml` would change; prints added/removed models. |
 | `localai status` | Show service, process, API, and port status. |
 | `localai autostart on` | Start at boot and keep running after logout (`off`, `status`). |
-| `localai check` | Check the API and model list. `--chat` also sends a short chat request. |
+| `localai add SOURCE` | Link a local GGUF file or folder, or download `ORG/REPO:QUANT` from Hugging Face. |
+| `localai doctor` | Find problems with the install, models, service and API. `--chat` also sends a short chat request. |
+| `localai backend` | List backends, or choose one with `localai backend use cuda`. |
 | `localai logs` | Follow the server log (`~/ai/logs/llama-swap.log`). |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
 | `localai ui [--open] [MODEL]` | Print a dashboard or model chat URL; optionally open it in your desktop browser. |
@@ -370,9 +384,12 @@ Most users only need these:
 | `localai unload MODEL` | Release one loaded model. |
 | `localai key ...` | Manage API keys (`create`, `list`, `revoke`, `rotate`) — see [API keys](#api-keys). |
 | `localai update` | Update installed components. `--check` only reports what is available. |
-| `localai rollback` | Switch back to the llama.cpp/llama-swap versions the last update replaced. |
+| `localai update --rollback` | Switch back to the llama.cpp/llama-swap versions the last update replaced. |
 | `localai version` | Show component versions. |
 | `localai uninstall` | Remove helper files; models are kept by default. |
+
+`localai help` shows the common commands and `localai help --all` shows every one.
+Older names (`check`, `switch`, `rollback`) still work.
 
 ### Safe updates
 
@@ -385,8 +402,8 @@ setup working:
 - After the update, LocalAI restarts and waits for the API. If it does not
   become ready, the previous versions are restored and restarted
   automatically.
-- The versions an update replaced are kept, so `localai rollback` can switch
-  back later. Run `localai rollback` again to return to the newer versions.
+- The versions an update replaced are kept, so `localai update --rollback` can switch
+  back later. Run `localai update --rollback` again to return to the newer versions.
   Only one previous version is kept. To delete it after each successful
   update instead, set `LOCALAI_KEEP_PREVIOUS=0` in `~/ai/conf/localai.conf`.
 - `localai update --check` shows what would change without changing anything.

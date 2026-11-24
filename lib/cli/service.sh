@@ -101,6 +101,11 @@ autostart_cmd() {
   esac
 }
 
+api_responds() {
+  # A subshell: helpers below may exit on a broken key registry.
+  (api_auth_curl_args && curl "${AUTH_CURL_ARGS[@]}" --max-time 3 -fsS "$(api_base_url)/v1/models") >/dev/null 2>&1
+}
+
 status_cmd() {
   local enabled linger
   if has_user_service; then
@@ -119,6 +124,11 @@ status_cmd() {
     print_service_details "helper script"
   fi
   pid_status
+  if api_responds; then
+    echo "API health: ok"
+  else
+    echo "API health: not responding"
+  fi
 }
 
 check_cmd() {

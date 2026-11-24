@@ -8,7 +8,7 @@ LOCALAI_LATEST_API="${LOCALAI_LATEST_API:-https://api.github.com/repos/hossbit/l
 # GitHub API cannot be reached (offline mirror, rate limit) the release this
 # script shipped with is used. Override LOCALAI_REF to test another tag/branch.
 LOCALAI_REF="${LOCALAI_REF:-latest}"
-LOCALAI_FALLBACK_REF="${LOCALAI_FALLBACK_REF:-v1.10.0}"
+LOCALAI_FALLBACK_REF="${LOCALAI_FALLBACK_REF:-v1.11.0}"
 
 log() {
   printf 'localai-install: %s\n' "$*"

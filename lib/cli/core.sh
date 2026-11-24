@@ -4,6 +4,25 @@ usage() {
   cat <<EOF
 Usage: localai COMMAND
 
+  start       Start LocalAI
+  stop        Stop LocalAI
+  status      Show service and API state
+  models      List installed models
+  add         Add a model: a local GGUF file, or ORG/REPO:QUANT from Hugging Face
+  logs        Follow the server log
+  doctor      Find problems; --chat also tests a chat reply
+  backend     List or choose the engine: cpu, vulkan, cuda, ...
+  update      Update LocalAI and its engine
+  help        Show this help; 'help --all' shows every command
+
+First steps: localai add FILE.gguf, then localai start
+EOF
+}
+
+usage_all() {
+  cat <<EOF
+Usage: localai COMMAND
+
 Commands:
   start       Start the LocalAI service
   stop        Stop the LocalAI service
@@ -11,8 +30,10 @@ Commands:
   reload      Rescan models and restart only if config.yaml would change
   status      Show service status
   autostart   Start at boot and keep running after logout (on, off, status)
-  check       Check process, port, and API health
+  doctor      Diagnose the install, models, service and API
               Use --chat for a chat completion round-trip
+  add         Link a local GGUF file or folder, or download ORG/REPO:QUANT
+              from Hugging Face ('localai add --help')
   logs        Follow service logs
   models      List installed GGUF models
   ui          Print the llama-swap Web UI URL, or a model's llama.cpp chat
@@ -23,19 +44,28 @@ Commands:
   load        Load one model, or all installed models
   unload      Unload one loaded model, or all loaded models
   key         Manage API keys (create, list, revoke, rotate)
-  switch      Switch the active llama.cpp backend (instant if already
-              installed before, e.g. cpu, vulkan, cuda, auto)
-  backend     Manage installed backends (list, install without switching)
+  backend     Manage llama.cpp backends: list, use BACKEND, install BACKEND
+              (cpu, vulkan, cuda, rocm, openvino, sycl-fp16, sycl-fp32, auto)
   update      Update llama.cpp, llama-swap, and helper scripts
               Use --all to update every installed backend, not just the active one
               Use --check to only report available updates (changes nothing)
               A failed restart restores the previous versions automatically
-  rollback    Switch back to the llama.cpp/llama-swap versions the last update
+              Use --rollback to return to the versions the last update
               replaced (run again to return to the newer ones)
   version     Show LocalAI and component versions
   uninstall   Uninstall LocalAI
-  help        Show this help
+  help        Show the common commands; --all shows this list
+
+Older names still work: check, switch, rollback.
 EOF
+}
+
+help_cmd() {
+  case "${1:-}" in
+    '') usage ;;
+    -a|--all|all) usage_all ;;
+    *) fail "usage: localai help [--all]" ;;
+  esac
 }
 
 fail() {

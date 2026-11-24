@@ -7,9 +7,9 @@ Usage: localai backend COMMAND
 Commands:
   list             List installed backends -- version, disk size, and which
                    one is active
+  use BACKEND      Switch to a backend, installing it first if needed
   install BACKEND  Install a backend without switching to it (cpu, vulkan,
-                   rocm, openvino, sycl-fp16, sycl-fp32, cuda, auto). Use
-                   'localai switch BACKEND' instead to install AND activate.
+                   rocm, openvino, sycl-fp16, sycl-fp32, cuda, auto)
   help             Show this help
 EOF
 }
@@ -21,6 +21,7 @@ backend_cmd() {
 
   case "$sub" in
     list) backend_list_cmd "$@" ;;
+    use) switch_cmd "$@" ;;
     install) backend_install_cmd "$@" ;;
     help|-h|--help) backend_usage ;;
     *)

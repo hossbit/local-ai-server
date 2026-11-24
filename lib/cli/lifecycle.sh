@@ -87,6 +87,11 @@ reload_cmd() {
 }
 
 update_cmd() {
+  if [ "${1:-}" = "--rollback" ]; then
+    shift
+    rollback_cmd "$@"
+    return
+  fi
   local updater="$BIN_DIR/update-local-ai.sh"
   [ -x "$updater" ] || updater="$SCRIPT_DIR/update-local-ai.sh"
   [ -x "$updater" ] || fail "missing updater: $BIN_DIR/update-local-ai.sh"
@@ -127,7 +132,7 @@ version_cmd() {
     echo "Install record: $CONF_DIR/${LOCALAI_MANIFEST_FILE:-installed.json}"
   fi
   if localai_snapshot_has_content "$(localai_previous_dir)"; then
-    echo "Rollback: available ('localai rollback')"
+    echo "Rollback: available ('localai update --rollback')"
   fi
 }
 
@@ -143,7 +148,7 @@ localai_service_running() {
 rollback_cmd() {
   local snap pending was_running=0
 
-  [ "$#" -eq 0 ] || fail "usage: localai rollback"
+  [ "$#" -eq 0 ] || fail "usage: localai update --rollback"
   snap="$(localai_previous_dir)"
   pending="$snap.pending"
   if [ -d "$pending" ]; then
@@ -187,7 +192,7 @@ llama.cpp or llama-swap (unless LOCALAI_KEEP_PREVIOUS=0)."
     rm -rf -- "$pending"
     echo "Recovered the installation from before the interrupted update."
   else
-    echo "Rollback complete. Run 'localai rollback' again to return to the newer versions."
+    echo "Rollback complete. Run 'localai update --rollback' again to return to the newer versions."
   fi
   echo
   version_cmd

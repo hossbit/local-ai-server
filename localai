@@ -68,6 +68,8 @@ source_localai_cli_lib install.sh
 source_localai_cli_lib cuda.sh
 source_localai_cli_lib cli/switch.sh
 source_localai_cli_lib cli/backend.sh
+source_localai_cli_lib cli/add.sh
+source_localai_cli_lib cli/doctor.sh
 
 COMMAND="${1:-help}"
 if [ "$#" -gt 0 ]; then
@@ -86,6 +88,12 @@ case "$COMMAND" in
     ;;
   autostart)
     autostart_cmd "$@"
+    ;;
+  add)
+    add_cmd "$@"
+    ;;
+  doctor)
+    doctor_cmd "$@"
     ;;
   check)
     check_cmd "$@"
@@ -130,9 +138,10 @@ case "$COMMAND" in
     uninstall_cmd "$@"
     ;;
   help|-h|--help)
-    usage
+    help_cmd "$@"
     ;;
   *)
+    echo "Unknown command: $COMMAND" >&2
     usage >&2
     exit 2
     ;;

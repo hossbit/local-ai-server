@@ -10,7 +10,7 @@ switch_cmd() {
   local requested="${1:-}" resolved backend_dir
 
   if [ -z "$requested" ] || [ "$#" -ne 1 ]; then
-    fail "usage: localai switch <backend>  (cpu, vulkan, rocm, openvino, sycl-fp16, sycl-fp32, cuda, auto)"
+    fail "usage: localai backend use <backend>  (cpu, vulkan, rocm, openvino, sycl-fp16, sycl-fp32, cuda, auto)"
   fi
 
   resolved="$requested"

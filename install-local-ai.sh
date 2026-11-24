@@ -486,8 +486,8 @@ echo
 echo "  Check status:"
 echo "    localai status"
 echo
-echo "  Check API health:"
-echo "    localai check"
+echo "  Find problems:"
+echo "    localai doctor"
 echo
 echo "  View logs:"
 echo "    localai logs"

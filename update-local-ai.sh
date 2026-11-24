@@ -180,7 +180,7 @@ cleanup_update() {
         echo "Previous versions restored." >&2
       else
         echo "Warning: some components could not be restored automatically." >&2
-        echo "The pre-update files are kept in $PENDING_SNAPSHOT; run 'localai rollback' to retry." >&2
+        echo "The pre-update files are kept in $PENDING_SNAPSHOT; run 'localai update --rollback' to retry." >&2
       fi
     else
       rm -rf -- "$PENDING_SNAPSHOT"
@@ -209,7 +209,7 @@ finish_snapshot() {
   if [ "${LOCALAI_KEEP_PREVIOUS:-1}" = "1" ] && localai_snapshot_has_content "$PENDING_SNAPSHOT"; then
     rm -rf -- "$previous"
     mv -- "$PENDING_SNAPSHOT" "$previous"
-    echo "Previous versions kept for 'localai rollback' in $previous"
+    echo "Previous versions kept for 'localai update --rollback' in $previous"
   else
     rm -rf -- "$PENDING_SNAPSHOT"
   fi
@@ -232,7 +232,7 @@ recover_interrupted_update() {
   log "Recovering from an interrupted update"
   if localai_snapshot_has_content "$pending"; then
     localai_snapshot_swap "$pending" ||
-      fail "could not restore the components saved in $pending. Inspect it, or run 'localai rollback'."
+      fail "could not restore the components saved in $pending. Inspect it, or run 'localai update --rollback'."
   fi
   rm -rf -- "$pending"
 }
