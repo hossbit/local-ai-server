@@ -10,6 +10,7 @@ Commands:
   restart     Restart the LocalAI service
   reload      Rescan models and restart only if config.yaml would change
   status      Show service status
+  autostart   Start at boot and keep running after logout (on, off, status)
   check       Check process, port, and API health
               Use --chat for a chat completion round-trip
   logs        Follow service logs

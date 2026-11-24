@@ -106,6 +106,17 @@ CPU-only install:
 curl -fsSL https://hossbit.github.io/localai/install.sh | LLAMA_CPP_BACKEND=cpu bash
 ```
 
+On a machine without a GPU the default install picks the CPU backend by
+itself. Minimal server images without `git` or `tar` are fine too: the
+installer adds `tar` with your package manager.
+
+Running LocalAI on a server you reach over SSH? Turn on autostart so it starts
+at boot and keeps running after you log out:
+
+```bash
+localai autostart on
+```
+
 Already installed and want another backend, including CUDA? No need to
 re-run the installer:
 
@@ -195,6 +206,14 @@ must use canonical llama.cpp split naming, such as `00001-of-00003`:
 
 LocalAI registers only the first shard. `llama.cpp` loads the remaining shards
 automatically.
+
+Models on another disk can stay there: a symlink to a `.gguf` file or to a
+model folder works like the real thing, and so does a symlinked
+`~/ai/models` directory.
+
+```bash
+ln -s /data/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf ~/ai/models/
+```
 
 Recommended layout:
 
@@ -341,7 +360,9 @@ Most users only need these:
 | `localai restart` | Restart the service. |
 | `localai reload` | Rescan models and restart only if `config.yaml` would change; prints added/removed models. |
 | `localai status` | Show service, process, API, and port status. |
-| `localai check` | Check the API and model list. |
+| `localai autostart on` | Start at boot and keep running after logout (`off`, `status`). |
+| `localai check` | Check the API and model list. `--chat` also sends a short chat request. |
+| `localai logs` | Follow the server log (`~/ai/logs/llama-swap.log`). |
 | `localai models` | List installed `.gguf` models and show loaded state when the API is reachable. |
 | `localai ui [--open] [MODEL]` | Print a dashboard or model chat URL; optionally open it in your desktop browser. |
 | `localai suggest` | Suggest runtime settings from installed model sizes and detected hardware. |

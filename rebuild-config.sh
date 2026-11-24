@@ -596,7 +596,7 @@ while IFS=$'\t' read -r NAME MODEL_REL MODEL; do
   # explicit MMPROJ= in a models.d override.
   MODEL_DIR_REL="${MODEL_REL%/*}"
   if [ "$MODEL_DIR_REL" != "$MODEL_REL" ]; then
-    MMPROJ_CANDIDATE="$(find "$MODELS_DIR/$MODEL_DIR_REL" -maxdepth 1 -type f -iname 'mmproj*.gguf' -print -quit 2>/dev/null || true)"
+    MMPROJ_CANDIDATE="$(find -L "$MODELS_DIR/$MODEL_DIR_REL" -maxdepth 1 -type f -iname 'mmproj*.gguf' -print -quit 2>/dev/null || true)"
     if [ -n "$MMPROJ_CANDIDATE" ]; then
       case "$MMPROJ_CANDIDATE" in
         *\"*|*"'"*|*'`'*|*\\*)

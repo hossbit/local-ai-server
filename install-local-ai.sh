@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# What the user asked for, before localai.conf fills in the default backend.
+REQUESTED_LLAMA_CPP_BACKEND="${LLAMA_CPP_BACKEND:-}"
+[ -z "${LOCALAI_DEFAULT_BACKEND:-}" ] || REQUESTED_LLAMA_CPP_BACKEND="${REQUESTED_LLAMA_CPP_BACKEND:-$LOCALAI_DEFAULT_BACKEND}"
 
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/lib/bootstrap.sh" 2>/dev/null ||
@@ -225,6 +228,26 @@ fallback_to_cpu_backend() {
   fi
 
   echo "Warning: llama.cpp backend '$failed_backend' did not run; retrying with CPU backend." >&2
+  install_cpu_backend_instead
+}
+
+# The default (or auto) Vulkan choice on a machine where llama.cpp finds no
+# GPU would run on the CPU anyway, but with the GPU profile (large context,
+# two slots, speculative decoding). Use the real CPU backend and its CPU-safe
+# defaults instead. An explicit LLAMA_CPP_BACKEND=vulkan is left alone.
+vulkan_default_without_gpu() {
+  local devices
+  [ "$LLAMA_CPP_BACKEND" = "vulkan" ] || return 1
+  [ "$LOCALAI_CPU_FALLBACK" = "1" ] || return 1
+  case "$REQUESTED_LLAMA_CPP_BACKEND" in
+    ''|auto) ;;
+    *) return 1 ;;
+  esac
+  devices="$(llama_server_device_count)" || return 1
+  [ "$devices" = "0" ]
+}
+
+install_cpu_backend_instead() {
   LLAMA_CPP_BACKEND="cpu"
   select_llama_cpp_asset_regex ""
   resolve_llama_cpp_url
@@ -341,6 +364,10 @@ else
   install_llama_cpp_archive "$DOWNLOAD_DIR/llama.cpp.tar.gz"
   if ! llama_server_runs; then
     fallback_to_cpu_backend
+  elif vulkan_default_without_gpu; then
+    echo "No GPU found for the Vulkan backend; installing the CPU backend instead." >&2
+    echo "To keep Vulkan anyway, rerun with LLAMA_CPP_BACKEND=vulkan." >&2
+    install_cpu_backend_instead
   fi
 fi
 cleanup_bin_artifacts
@@ -485,11 +512,11 @@ echo
 echo "  Uninstall:"
 echo "    localai uninstall"
 echo
-echo "  Enable auto-start on login:"
-echo "    systemctl --user enable ${LOCALAI_SERVICE_NAME%.service}"
+echo "  Start at boot and keep running after logout:"
+echo "    localai autostart on"
 echo
 echo "  Disable auto-start:"
-echo "    systemctl --user disable ${LOCALAI_SERVICE_NAME%.service}"
+echo "    localai autostart off"
 echo
 echo "Helper scripts:"
 echo

@@ -84,6 +84,9 @@ case "$COMMAND" in
   status)
     status_cmd
     ;;
+  autostart)
+    autostart_cmd "$@"
+    ;;
   check)
     check_cmd "$@"
     ;;

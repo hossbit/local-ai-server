@@ -201,6 +201,23 @@ llama_server_runs() {
   [ -x "$BIN_DIR/llama-server" ] && "$BIN_DIR/llama-server" --version >/dev/null 2>&1
 }
 
+# llama_server_device_count: number of accelerator devices the active
+# llama-server can use, from `--list-devices` ("Available devices:" followed
+# by one indented line per device, or "(none)"). llama.cpp already ignores
+# CPU-only Vulkan drivers such as Mesa's lavapipe, so a machine without a GPU
+# reports 0 even though a Vulkan loader and ICD are installed. Prints nothing
+# when the binary cannot list devices.
+llama_server_device_count() {
+  local output
+  [ -x "$BIN_DIR/llama-server" ] || return 1
+  output="$("$BIN_DIR/llama-server" --list-devices 2>/dev/null)" || return 1
+  grep -q '^Available devices:' <<<"$output" || return 1
+  awk '/^Available devices:/ {listing = 1; next}
+    listing && /^[[:space:]]+[^[:space:]]/ && !/\(none\)/ {count++}
+    listing && /^[^[:space:]]/ {listing = 0}
+    END {print count + 0}' <<<"$output"
+}
+
 # verify_llama_server: shared by the installer and updater. Prints one
 # actionable error and returns non-zero when the active backend's binary
 # cannot run. Returning (rather than exiting) lets each caller decide whether

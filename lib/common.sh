@@ -473,7 +473,7 @@ localai_model_entries() {
     dir="${rel%/*}"
     [ "$dir" = "$rel" ] && dir="."
     primary_counts["$dir"]=$(( ${primary_counts["$dir"]:-0} + 1 ))
-  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print | sort)
+  done < <(find -L "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print 2>/dev/null | sort)
 
   for rel in "${entries[@]}"; do
     filename="${rel##*/}"
@@ -511,7 +511,7 @@ localai_has_model_entries() {
     if gguf_model_file_is_primary "$filename"; then
       return 0
     fi
-  done < <(find "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print | sort)
+  done < <(find -L "$models_dir" -mindepth 1 -maxdepth 2 -type f -iname '*.gguf' -print 2>/dev/null | sort)
 
   return 1
 }
@@ -546,12 +546,12 @@ localai_model_bytes() {
     for ((i = 1; i <= 10#$total; i++)); do
       shard="$(printf "%s-%0${width}d-of-%s%s" "$prefix" "$i" "$total" "$ext")"
       if [ -f "$dir/$shard" ]; then
-        shard_bytes="$(stat -c '%s' "$dir/$shard" 2>/dev/null || printf '0')"
+        shard_bytes="$(stat -L -c '%s' "$dir/$shard" 2>/dev/null || printf '0')"
         bytes=$((bytes + shard_bytes))
       fi
     done
   else
-    bytes="$(stat -c '%s' "$path" 2>/dev/null || printf '0')"
+    bytes="$(stat -L -c '%s' "$path" 2>/dev/null || printf '0')"
   fi
 
   printf '%s\n' "$bytes"
